@@ -211,11 +211,11 @@ function App() {
               : 'text-slate-700 hover:text-slate-500'
           }`}
         >
-          {currentUser.role === UserRole.ADMIN ? (
-            <ICONS.User className="w-7 h-7" />  // Fixed: Users → User
-          ) : (
-            <ICONS.Wallet className="w-7 h-7" />
-          )}
+      {currentUser.role === UserRole.ADMIN ? (
+  <ICONS.Users className="w-7 h-7" />  // ab Users add ho gaya hai
+) : (
+  <ICONS.Wallet className="w-7 h-7" />
+)}
           <span className="text-[9px] font-black uppercase mt-1 italic tracking-widest leading-none">
             {currentUser.role === UserRole.ADMIN ? 'Admin' : 'Wallet'}
           </span>
