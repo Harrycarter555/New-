@@ -167,7 +167,7 @@ function App() {
             userId: currentUser.id,
             username: currentUser.username,
             message: msg,
-            status: 'open',
+            status: "open" | "resolved",
             timestamp: Date.now(),
           };
           setAppState(prev => ({
