@@ -1,6 +1,9 @@
 /* src/index.css */
 
-/* Tailwind Directives – yeh sabse upar honi chahiye */
+/* Google Fonts - sabse pehle */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@800;900&display=swap');
+
+/* Tailwind Directives - fonts ke baad */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -19,6 +22,7 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overscroll-behavior-y: contain;
+    font-family: 'Inter', sans-serif;
   }
 
   #root {
@@ -34,7 +38,7 @@
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-    border-radius: 1.5rem; /* rounded-[24px] ke liye fallback */
+    border-radius: 1.5rem;
   }
 
   .dark-mesh {
@@ -67,38 +71,35 @@
     scrollbar-width: none;
   }
 
-  /* Animations */
-  @keyframes slide {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .animate-slide {
-    animation: slide 0.6s ease-out forwards;
-  }
-
-  /* Extra Utilities jo tere code mein use ho rahi hain */
-  .backdrop-blur-xl {
-    backdrop-filter: blur(24px);
-  }
-
-  .border-t-8 {
-    border-top-width: 8px;
-  }
-
-  .tracking-[0.4em] {
-    letter-spacing: 0.4em;
-  }
-
-  .font-black {
-    font-weight: 900;
+  /* Brand Font */
+  .brand-font {
+    font-family: 'Montserrat', sans-serif;
   }
 }
 
-/* Google Fonts (index.html se hata ke yahan import kar sakte ho agar chaho) */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@800;900&display=swap');
+/* Animations */
+@keyframes slide {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
-/* Brand Font */
-.brand-font {
-  font-family: 'Montserrat', sans-serif;
+.animate-slide {
+  animation: slide 0.6s ease-out forwards;
+}
+
+/* Extra Utilities */
+.backdrop-blur-3xl {
+  backdrop-filter: blur(24px);
+}
+
+.border-t-8 {
+  border-top-width: 8px;
+}
+
+.tracking-\[0\.4em\] {
+  letter-spacing: 0.4em;
+}
+
+.font-black {
+  font-weight: 900;
 }
