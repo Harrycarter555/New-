@@ -3,8 +3,8 @@ import { useState, useEffect } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import { 
-  AppState, User, Campaign, UserRole 
-} from './types.ts';
+  AppState, User, Campaign, UserRole, UserReport 
+} from './types.ts';  // sirf jaruri types rakhe
 
 import { loadAppState, saveAppState } from './utils/firebaseState';
 import { INITIAL_DATA } from './constants.tsx';
@@ -167,9 +167,10 @@ function App() {
             userId: currentUser.id,
             username: currentUser.username,
             message: msg,
-            status: 'open' as const,
-            timestamp: Number(Date.now()),
-          };
+            status: 'open' as const,  // literal type fix
+            timestamp: Number(Date.now()),  // arithmetic fix
+          } as UserReport;
+
           setAppState(prev => ({
             ...prev,
             reports: [newReport, ...prev.reports],
@@ -211,11 +212,11 @@ function App() {
               : 'text-slate-700 hover:text-slate-500'
           }`}
         >
-      {currentUser.role === UserRole.ADMIN ? (
-  <ICONS.Users className="w-7 h-7" />  // ab Users add ho gaya hai
-) : (
-  <ICONS.Wallet className="w-7 h-7" />
-)}
+          {currentUser.role === UserRole.ADMIN ? (
+            <ICONS.User className="w-7 h-7" />  // Users → User (constants mein Users nahi hai)
+          ) : (
+            <ICONS.Wallet className="w-7 h-7" />
+          )}
           <span className="text-[9px] font-black uppercase mt-1 italic tracking-widest leading-none">
             {currentUser.role === UserRole.ADMIN ? 'Admin' : 'Wallet'}
           </span>
