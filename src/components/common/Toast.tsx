@@ -1,5 +1,6 @@
+// src/components/common/Toast.tsx
 import React, { useEffect, useState } from 'react';
-import { ICONS } from '../../constants';
+import { ICONS } from '../../utils/constants';
 
 interface ToastProps {
   message: string;
