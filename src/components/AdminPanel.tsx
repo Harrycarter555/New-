@@ -1,29 +1,23 @@
 // src/components/AdminPanel.tsx
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { collection, getDocs, updateDoc, doc, query, where, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
-import { User, UserRole, UserStatus, AppState, Campaign, PayoutRequest, Submission, BroadcastMessage, UserReport } from '../types';
-import { formatCurrency, formatDate } from '../utils/helpers';
+import { User, UserRole, UserStatus, AppState, Campaign, PayoutRequest } from '../types';
 import { ICONS } from '../utils/constants';
-import LoadingSpinner from './LoadingSpinner';
 
 interface AdminPanelProps {
   appState: AppState;
   setAppState: React.Dispatch<React.SetStateAction<AppState>>;
   currentUser: User;
-  showToast: (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  showToast: (msg: string, type?: 'success' | 'error') => void;
 }
 
-type AdminTab = 'dashboard' | 'members' | 'campaigns' | 'payouts' | 'messages' | 'reports' | 'analytics';
+type AdminTab = 'dashboard' | 'members' | 'campaigns' | 'payouts' | 'messages' | 'reports';
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentUser, showToast }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState({
-    users: false,
-    campaigns: false,
-    payouts: false
-  });
+  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [newCampaign, setNewCampaign] = useState<Partial<Campaign>>({
@@ -58,7 +52,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
   // Load all users
   const loadUsers = async () => {
     try {
-      setLoading(prev => ({ ...prev, users: true }));
+      setLoading(true);
       const snap = await getDocs(collection(db, 'users'));
       const userList: User[] = snap.docs.map(d => ({
         ...(d.data() as User),
@@ -70,7 +64,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
       console.error('Error loading users:', e);
       showToast(e.message || 'Failed to load users', 'error');
     } finally {
-      setLoading(prev => ({ ...prev, users: false }));
+      setLoading(false);
     }
   };
 
@@ -109,6 +103,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
       activeCampaigns
     };
   }, [users, appState]);
+
+  // Format currency
+  const formatCurrency = (amount: number): string => {
+    return `₹${amount.toLocaleString('en-IN')}`;
+  };
+
+  // Format date
+  const formatDate = (timestamp: number): string => {
+    return new Date(timestamp).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
 
   // Toggle user status
   const toggleUserStatus = async (user: User) => {
@@ -221,33 +229,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
     }
   };
 
-  // Send broadcast message
-  const sendBroadcast = async (content: string, targetUserId?: string) => {
-    if (!content.trim()) {
-      showToast('Message cannot be empty', 'error');
-      return;
-    }
-
-    try {
-      const broadcast: BroadcastMessage = {
-        id: `bc-${Date.now()}`,
-        content: content.trim(),
-        senderId: currentUser.id,
-        targetUserId,
-        timestamp: Date.now()
-      };
-
-      setAppState(prev => ({
-        ...prev,
-        broadcasts: [broadcast, ...prev.broadcasts]
-      }));
-
-      showToast('Message sent successfully', 'success');
-    } catch (e: any) {
-      showToast(e.message, 'error');
-    }
-  };
-
   // Render dashboard tab
   const renderDashboard = () => (
     <div className="space-y-8 animate-slide">
@@ -322,8 +303,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
         </button>
       </div>
 
-      {loading.users ? (
-        <LoadingSpinner />
+      {loading ? (
+        <div className="flex justify-center py-10">
+          <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+        </div>
       ) : filteredUsers.length === 0 ? (
         <div className="text-center py-10">
           <p className="text-slate-600">No users found</p>
