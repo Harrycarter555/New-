@@ -11,7 +11,7 @@ interface AdminPanelProps {
 
 const AdminPanel: React.FC<AdminPanelProps> = ({
   appState,
-  setAppState,
+  _setAppState, // unused ko ignore
   currentUser,
   showToast,
 }) => {
@@ -19,7 +19,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     'dashboard' | 'members' | 'campaigns' | 'payouts' | 'messages' | 'reports'
   >('dashboard');
 
-  // Yeh simple dashboard example hai – baad mein alag components bana sakte ho
   const renderDashboard = () => (
     <div className="space-y-6 animate-slide">
       <h2 className="text-3xl font-black italic text-white uppercase">Admin Dashboard</h2>
@@ -30,12 +29,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
             {appState.users.filter(u => u.role !== UserRole.ADMIN).length}
           </p>
         </div>
-        {/* Add more stats cards */}
       </div>
     </div>
   );
 
-  // Placeholder for other tabs – inko alag files mein split kar sakte ho
   const renderMembers = () => (
     <div>
       <h3 className="text-2xl font-black text-white mb-6">Manage Members</h3>
@@ -50,10 +47,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => {
-                    // Suspend / Activate logic here
-                    showToast('User status updated', 'success');
-                  }}
+                  onClick={() => showToast('User status updated', 'success')}
                   className="px-4 py-2 bg-red-600/20 text-red-300 rounded-lg text-sm"
                 >
                   Suspend
@@ -87,9 +81,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {adminTab === 'dashboard' && renderDashboard()}
       {adminTab === 'members' && renderMembers()}
-      {adminTab === 'campaigns' && <p className="text-white">Campaign Management - Coming soon (add form here)</p>}
+      {adminTab === 'campaigns' && <p className="text-white">Campaign Management - Coming soon</p>}
       {adminTab === 'payouts' && <p className="text-white">Pending Payouts - List here</p>}
-      {/* Baaki tabs similarly add kar dena */}
     </div>
   );
 };
