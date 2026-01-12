@@ -1,118 +1,84 @@
-// src/components/AuthView.tsx
-import React, { useState, useEffect } from 'react';
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  sendPasswordResetEmail,
-} from 'firebase/auth';
-import { doc, setDoc, getDoc, query, where, collection, getDocs } from 'firebase/firestore';
-
+import React, { useState } from 'react';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
-import { getPasswordStrength } from '../utils/helpers';
-import { ICONS } from '../utils/constants';
-import PasswordMeter from './PasswordMeter';
 
 interface AuthViewProps {
-  setCurrentUser: (u: User | null) => void;
-  setCurrentView: (v: 'auth' | 'campaigns' | 'admin') => void;
-  showToast: (m: string, t?: 'success' | 'error') => void;
+  setCurrentUser: (user: User | null) => void;
+  setCurrentView: (view: string) => void;
+  showToast: (message: string, type: 'success' | 'error') => void;
 }
 
-const AuthView: React.FC<AuthViewProps> = ({
-  setCurrentUser,
-  setCurrentView,
-  showToast,
-}) => {
-  const [tab, setTab] = useState<'signin' | 'signup' | 'forgot'>('signin');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('');
-  const [securityKey, setSecurityKey] = useState('');
-  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, showToast }) => {
+  const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
+  const [email, setEmail] = useState('test@example.com'); // Default for testing
+  const [password, setPassword] = useState('123456'); // Default for testing
+  const [username, setUsername] = useState('testuser');
   const [loading, setLoading] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
 
-  // Auto-fill remember me
-  useEffect(() => {
-    const savedEmail = localStorage.getItem('reelearn_email');
-    if (savedEmail) {
-      setEmail(savedEmail);
-      setRememberMe(true);
-    }
-  }, []);
-
-  // Validate email
-  const validateEmail = (email: string): boolean => {
-    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return regex.test(email);
-  };
-
-  /* ---------------- SIGN IN ---------------- */
-  const signIn = async () => {
-    // Validation
+  const handleLogin = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!email || !password) {
-      showToast('Please fill all fields', 'error');
-      return;
-    }
-
-    if (!validateEmail(email)) {
-      showToast('Please enter a valid email', 'error');
+      showToast('Please enter email and password', 'error');
       return;
     }
 
     try {
       setLoading(true);
+      console.log('Attempting login with:', email);
       
-      // Firebase authentication
-      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Firebase auth successful:', userCredential.user.uid);
       
-      // Fetch user data from Firestore
-      const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
-
-      if (!userDoc.exists()) {
-        showToast('Account not found. Please sign up first.', 'error');
-        return;
-      }
-
-      const userData = userDoc.data() as User;
+      // Get user data from Firestore
+      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       
-      // Check if user is suspended
-      if (userData.status === UserStatus.SUSPENDED) {
-        showToast('Account suspended. Contact admin.', 'error');
-        return;
-      }
-
-      // Update readBroadcastIds if missing
-      if (!userData.readBroadcastIds) {
-        userData.readBroadcastIds = [];
-      }
-
-      // Remember email if checked
-      if (rememberMe) {
-        localStorage.setItem('reelearn_email', email);
+      if (userDoc.exists()) {
+        const userData = userDoc.data() as User;
+        console.log('User data found:', userData.username);
+        
+        setCurrentUser(userData);
+        setCurrentView(userData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
+        showToast(`Welcome back, ${userData.username}!`, 'success');
       } else {
-        localStorage.removeItem('reelearn_email');
+        console.log('User document not found, creating new...');
+        // Create user document if doesn't exist
+        const newUser: User = {
+          id: userCredential.user.uid,
+          username: email.split('@')[0],
+          email: email,
+          role: UserRole.USER,
+          status: UserStatus.ACTIVE,
+          walletBalance: 0,
+          pendingBalance: 0,
+          totalEarnings: 0,
+          joinedAt: Date.now(),
+          readBroadcastIds: [],
+          securityKey: `KEY-${Date.now().toString(36).toUpperCase()}`,
+        };
+        
+        await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
+        setCurrentUser(newUser);
+        setCurrentView('campaigns');
+        showToast('Account created automatically!', 'success');
       }
-
-      // Set user and navigate
-      setCurrentUser(userData);
-      setCurrentView(userData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
-      showToast(`Welcome back, ${userData.username}!`, 'success');
-
     } catch (error: any) {
-      console.error('Login error:', error);
+      console.error('Login error details:', error);
+      let message = 'Login failed';
       
-      // Handle specific Firebase errors
-      let message = 'Server error. Please try again.';
       if (error.code === 'auth/user-not-found') {
-        message = 'Invalid email or password';
+        message = 'Account not found. Please sign up first.';
       } else if (error.code === 'auth/wrong-password') {
-        message = 'Invalid email or password';
+        message = 'Incorrect password';
       } else if (error.code === 'auth/too-many-requests') {
         message = 'Too many attempts. Try again later.';
+      } else if (error.code === 'auth/invalid-email') {
+        message = 'Invalid email format';
       } else if (error.code === 'auth/user-disabled') {
-        message = 'Account disabled. Contact support.';
+        message = 'Account disabled';
+      } else if (error.code === 'auth/network-request-failed') {
+        message = 'Network error. Check connection.';
       }
       
       showToast(message, 'error');
@@ -121,90 +87,61 @@ const AuthView: React.FC<AuthViewProps> = ({
     }
   };
 
-  /* ---------------- SIGN UP ---------------- */
-  const signUp = async () => {
-    // Validation
+  const handleSignup = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!username || !email || !password) {
       showToast('Please fill all fields', 'error');
       return;
     }
 
-    if (username.length < 3) {
-      showToast('Username must be at least 3 characters', 'error');
-      return;
-    }
-
-    if (!validateEmail(email)) {
-      showToast('Please enter a valid email', 'error');
-      return;
-    }
-
-    const passwordErrors = getPasswordStrength(password);
-    if (passwordErrors.score < 2) {
-      showToast('Please choose a stronger password', 'error');
+    if (password.length < 6) {
+      showToast('Password must be at least 6 characters', 'error');
       return;
     }
 
     try {
       setLoading(true);
+      console.log('Creating account for:', email);
       
-      // Check if username already exists
-      const usernameQuery = query(collection(db, 'users'), where('username', '==', username));
-      const usernameSnapshot = await getDocs(usernameQuery);
-      if (!usernameSnapshot.empty) {
-        showToast('Username already taken', 'error');
-        return;
-      }
-
-      // Create Firebase auth user
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-
-      // Generate security key
-      const key = `RE-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Date.now().toString().slice(-4)}`;
-
-      // Create user object
-      const user: User = {
-        id: cred.user.uid,
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      console.log('User created with ID:', userCredential.user.uid);
+      
+      const securityKey = `RE-${Date.now().toString(36).toUpperCase()}`;
+      
+      const newUser: User = {
+        id: userCredential.user.uid,
         username,
         email,
         role: UserRole.USER,
         status: UserStatus.ACTIVE,
-        securityKey: key,
-        walletBalance: 0,
+        walletBalance: 100, // Starting bonus
         pendingBalance: 0,
         totalEarnings: 0,
         joinedAt: Date.now(),
         readBroadcastIds: [],
-        savedSocialUsername: '',
-        payoutMethod: 'UPI',
-        payoutDetails: '',
+        securityKey,
       };
 
-      // Save to Firestore
-      await setDoc(doc(db, 'users', cred.user.uid), user);
-
-      // Show security key
-      setGeneratedKey(key);
-
-      // Set user and show success
-      setCurrentUser(user);
-      showToast('Account created successfully!', 'success');
-
-      // Auto-navigate after 3 seconds
-      setTimeout(() => {
-        setCurrentView('campaigns');
-      }, 3000);
-
-    } catch (error: any) {
-      console.error('Signup error:', error);
+      await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
+      console.log('User document saved to Firestore');
       
-      let message = 'Server error. Please try again.';
+      setCurrentUser(newUser);
+      setCurrentView('campaigns');
+      showToast('Account created successfully!', 'success');
+    } catch (error: any) {
+      console.error('Signup error details:', error);
+      let message = 'Signup failed';
+      
       if (error.code === 'auth/email-already-in-use') {
-        message = 'Email already registered. Please login.';
+        message = 'Email already in use. Please login.';
       } else if (error.code === 'auth/weak-password') {
-        message = 'Password should be at least 6 characters.';
+        message = 'Password is too weak';
       } else if (error.code === 'auth/invalid-email') {
-        message = 'Invalid email address';
+        message = 'Invalid email format';
+      } else if (error.code === 'auth/operation-not-allowed') {
+        message = 'Email/password signup is disabled';
+      } else if (error.code === 'auth/network-request-failed') {
+        message = 'Network error. Check connection.';
       }
       
       showToast(message, 'error');
@@ -213,288 +150,108 @@ const AuthView: React.FC<AuthViewProps> = ({
     }
   };
 
-  /* ---------------- FORGOT PASSWORD ---------------- */
-  const recover = async () => {
-    if (!securityKey.trim() && !email.trim()) {
-      showToast('Please enter either security key or email', 'error');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      
-      let recoveryEmail = email;
-
-      // If security key is provided, find email
-      if (securityKey.trim()) {
-        const keyQuery = query(collection(db, 'users'), where('securityKey', '==', securityKey));
-        const keySnapshot = await getDocs(keyQuery);
-
-        if (keySnapshot.empty) {
-          showToast('Invalid security key', 'error');
-          return;
-        }
-
-        recoveryEmail = keySnapshot.docs[0].data().email!;
-      }
-
-      // Send password reset email
-      await sendPasswordResetEmail(auth, recoveryEmail);
-      
-      showToast('Password reset email sent. Check your inbox.', 'success');
-      setTab('signin');
-      setSecurityKey('');
-      
-    } catch (error: any) {
-      console.error('Recovery error:', error);
-      showToast(error.message || 'Failed to send reset email', 'error');
-    } finally {
-      setLoading(false);
-    }
+  // Simple test login
+  const testLogin = async () => {
+    setEmail('test@example.com');
+    setPassword('123456');
+    await handleLogin();
   };
 
-  /* ---------------- GENERATED KEY VIEW ---------------- */
-  if (generatedKey) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="glass-panel w-full max-w-md p-8 rounded-[48px] border-t-8 border-cyan-500 text-center space-y-8">
-          <div className="w-20 h-20 bg-cyan-500/10 rounded-full flex items-center justify-center mx-auto">
-            <ICONS.Check className="w-10 h-10 text-cyan-500" />
-          </div>
-          
-          <h2 className="text-2xl font-black text-white">ACCOUNT CREATED</h2>
-          
-          <div className="space-y-4">
-            <p className="text-sm text-slate-400">Save your security key:</p>
-            <div className="bg-black/50 p-6 rounded-3xl border-2 border-cyan-500/30">
-              <p className="text-2xl font-black text-cyan-400 tracking-widest">{generatedKey}</p>
-            </div>
-            <p className="text-[10px] text-slate-600">
-              This key is required for password recovery. Save it securely!
-            </p>
-          </div>
-          
-          <button
-            onClick={() => {
-              setGeneratedKey(null);
-              setCurrentView('campaigns');
-            }}
-            className="w-full py-4 bg-cyan-500 text-black rounded-2xl font-black uppercase tracking-widest"
-          >
-            CONTINUE TO APP
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  /* ---------------- MAIN AUTH UI ---------------- */
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="w-full max-w-md space-y-8">
-        {/* Header */}
-        <div className="text-center space-y-4">
-          <h1 className="text-5xl font-black italic text-white tracking-tighter">
+    <div className="min-h-screen flex items-center justify-center bg-black p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-10">
+          <h1 className="text-5xl font-black text-white mb-2">
             REEL<span className="text-cyan-400">EARN</span>
           </h1>
-          <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] italic">
-            EARN BY CREATING VIRAL REELS
-          </p>
+          <p className="text-slate-500 text-sm">Earn by creating viral reels</p>
         </div>
 
-        {/* Tab Selection */}
-        <div className="flex gap-2 bg-white/5 p-2 rounded-3xl border border-white/10">
-          <button
-            onClick={() => setTab('signin')}
-            className={`flex-1 py-4 rounded-2xl font-black text-sm uppercase transition-all ${
-              tab === 'signin' ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500'
-            }`}
-          >
-            SIGN IN
-          </button>
-          <button
-            onClick={() => setTab('signup')}
-            className={`flex-1 py-4 rounded-2xl font-black text-sm uppercase transition-all ${
-              tab === 'signup' ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500'
-            }`}
-          >
-            SIGN UP
-          </button>
-          <button
-            onClick={() => setTab('forgot')}
-            className={`flex-1 py-4 rounded-2xl font-black text-sm uppercase transition-all ${
-              tab === 'forgot' ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500'
-            }`}
-          >
-            RECOVER
-          </button>
-        </div>
+        <div className="glass-panel p-8 rounded-3xl">
+          <div className="flex mb-6 bg-slate-900/50 p-1 rounded-2xl">
+            <button
+              onClick={() => setActiveTab('login')}
+              className={`flex-1 py-3 rounded-xl font-bold ${activeTab === 'login' ? 'bg-cyan-500 text-black' : 'text-slate-500'}`}
+            >
+              LOGIN
+            </button>
+            <button
+              onClick={() => setActiveTab('signup')}
+              className={`flex-1 py-3 rounded-xl font-bold ${activeTab === 'signup' ? 'bg-cyan-500 text-black' : 'text-slate-500'}`}
+            >
+              SIGN UP
+            </button>
+          </div>
 
-        {/* Form Container */}
-        <div className="glass-panel p-8 rounded-[48px] border border-white/10 space-y-6">
-          {/* SIGN IN FORM */}
-          {tab === 'signin' && (
-            <>
-              <div className="space-y-4">
-                <input
-                  type="email"
-                  placeholder="Email Address"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-slate-600 outline-none focus:border-cyan-500"
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-slate-600 outline-none focus:border-cyan-500"
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 bg-white/5 border border-white/10 rounded"
-                  />
-                  <span className="text-[10px] font-black text-slate-500 uppercase">Remember me</span>
-                </label>
-                <button
-                  onClick={() => setTab('forgot')}
-                  className="text-[10px] font-black text-cyan-500 uppercase"
-                >
-                  Forgot Password?
-                </button>
-              </div>
-              
-              <button
-                onClick={signIn}
-                disabled={loading}
-                className="w-full py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-black text-lg rounded-full shadow-xl hover:shadow-2xl transition-all disabled:opacity-50"
-              >
-                {loading ? 'SIGNING IN...' : 'SIGN IN'}
-              </button>
-            </>
-          )}
-
-          {/* SIGN UP FORM */}
-          {tab === 'signup' && (
-            <>
-              <div className="space-y-4">
+          <form onSubmit={activeTab === 'login' ? handleLogin : handleSignup}>
+            {activeTab === 'signup' && (
+              <div className="mb-4">
                 <input
                   type="text"
                   placeholder="Username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-slate-600 outline-none focus:border-cyan-500"
-                  maxLength={20}
+                  className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white mb-3"
+                  required
                 />
-                <input
-                  type="email"
-                  placeholder="Email Address"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-slate-600 outline-none focus:border-cyan-500"
-                />
-                <div className="relative">
-                  <input
-                    type="password"
-                    placeholder="Password (min 6 characters)"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-slate-600 outline-none focus:border-cyan-500"
-                  />
-                  <PasswordMeter password={password} />
-                </div>
               </div>
-              
-              <div className="text-[10px] text-slate-600 space-y-2">
-                <p className="font-black uppercase">By signing up, you agree to:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li>Follow all campaign guidelines</li>
-                  <li>Not use bots or automation</li>
-                  <li>Submit only authentic content</li>
-                  <li>Keep your security key safe</li>
-                </ul>
-              </div>
-              
-              <button
-                onClick={signUp}
-                disabled={loading}
-                className="w-full py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-black text-lg rounded-full shadow-xl hover:shadow-2xl transition-all disabled:opacity-50"
-              >
-                {loading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
-              </button>
-            </>
-          )}
+            )}
 
-          {/* FORGOT PASSWORD FORM */}
-          {tab === 'forgot' && (
-            <>
-              <div className="space-y-6">
-                <div className="space-y-4">
-                  <input
-                    type="text"
-                    placeholder="Security Key (if you have it)"
-                    value={securityKey}
-                    onChange={(e) => setSecurityKey(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-slate-600 outline-none focus:border-cyan-500"
-                  />
-                  <div className="relative">
-                    <div className="absolute left-0 right-0 top-1/2 h-px bg-white/10 -translate-y-1/2"></div>
-                    <div className="relative flex justify-center">
-                      <span className="bg-black px-4 text-[10px] font-black text-slate-600 uppercase">OR</span>
-                    </div>
-                  </div>
-                  <input
-                    type="email"
-                    placeholder="Registered Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-slate-600 outline-none focus:border-cyan-500"
-                  />
-                </div>
-                
-                <p className="text-[10px] text-slate-600 text-center">
-                  Enter either your security key or registered email to recover your account
-                </p>
-                
-                <button
-                  onClick={recover}
-                  disabled={loading}
-                  className="w-full py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-black text-lg rounded-full shadow-xl hover:shadow-2xl transition-all disabled:opacity-50"
-                >
-                  {loading ? 'SENDING...' : 'RECOVER ACCOUNT'}
-                </button>
-                
-                <button
-                  onClick={() => setTab('signin')}
-                  className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl text-slate-500 font-black uppercase"
-                >
-                  Back to Sign In
-                </button>
-              </div>
-            </>
-          )}
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white mb-3"
+              required
+            />
+
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white mb-6"
+              required
+            />
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold py-4 rounded-xl hover:opacity-90 disabled:opacity-50"
+            >
+              {loading ? 'PROCESSING...' : (activeTab === 'login' ? 'LOGIN' : 'CREATE ACCOUNT')}
+            </button>
+
+            {/* Test button for quick login */}
+            <button
+              type="button"
+              onClick={testLogin}
+              className="w-full mt-4 bg-green-500/20 text-green-400 border border-green-500/30 py-3 rounded-xl text-sm"
+            >
+              🚀 TEST LOGIN (test@example.com / 123456)
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <p className="text-slate-600 text-sm">
+              {activeTab === 'login' ? "Don't have an account?" : "Already have an account?"}
+              <button
+                onClick={() => setActiveTab(activeTab === 'login' ? 'signup' : 'login')}
+                className="text-cyan-400 ml-2"
+              >
+                {activeTab === 'login' ? 'Sign Up' : 'Login'}
+              </button>
+            </p>
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="text-center space-y-4">
-          <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest">
-            {tab === 'signin' ? "Don't have an account?" : "Already have an account?"}
-            <button
-              onClick={() => setTab(tab === 'signin' ? 'signup' : 'signin')}
-              className="text-cyan-500 ml-2"
-            >
-              {tab === 'signin' ? 'SIGN UP' : 'SIGN IN'}
-            </button>
-          </p>
-          <p className="text-[8px] text-slate-800 font-black uppercase tracking-widest">
-            © 2026 REEL EARN PRO • EARN BY CREATING VIRAL CONTENT
-          </p>
+        {/* Debug info */}
+        <div className="mt-6 p-4 bg-slate-900/30 rounded-xl text-xs text-slate-500">
+          <p>🔍 Debug Info:</p>
+          <p>• Firebase Project: reelearn-505d9</p>
+          <p>• Ensure Email/Password auth is enabled in Firebase Console</p>
+          <p>• Test credentials: test@example.com / 123456</p>
         </div>
       </div>
     </div>
