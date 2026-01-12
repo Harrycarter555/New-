@@ -1,8 +1,9 @@
 // src/main.tsx
+import './index.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
-import './index.css'; // Global styles + Tailwind directives yahan import hote hain
+// Global styles + Tailwind directives yahan import hote hain
 
 // Root element ko safely grab karte hain (null check ke saath)
 const rootElement = document.getElementById('root');
