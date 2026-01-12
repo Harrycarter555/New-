@@ -1,7 +1,7 @@
 // src/components/WalletView.tsx
 import React, { useState, useMemo } from 'react';
-import { User, AppState, AppLog, PayoutStatus, Platform } from '../types';
-import { ICONS } from '../constants';
+import { User, AppState, PayoutStatus, Platform } from '../types'; // AppLog hata diya (unused tha)
+import { ICONS } from '../constants'; // ICONS bhi agar use nahi ho raha toh hata sakte ho, lekin agar kahin use ho raha hai toh rakh lo
 
 interface WalletViewProps {
   currentUser: User;
@@ -18,13 +18,16 @@ const WalletView: React.FC<WalletViewProps> = ({
 }) => {
   const [walletTab, setWalletTab] = useState<'transactions' | 'inbox' | 'payment' | 'viral'>('transactions');
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  
+  // Fixed: method ko strict literal type diya + type assertion
   const [paymentSettings, setPaymentSettings] = useState<{
-  method: 'UPI' | 'BANK' | 'USDT';
-  details: string;
-}>({
-  method: (currentUser.payoutMethod as 'UPI' | 'BANK' | 'USDT') || 'UPI',
-  details: currentUser.payoutDetails || '',
-});
+    method: 'UPI' | 'BANK' | 'USDT';
+    details: string;
+  }>({
+    method: (currentUser.payoutMethod as 'UPI' | 'BANK' | 'USDT' || 'UPI'),
+    details: currentUser.payoutDetails || '',
+  });
+
   const [viralLink, setViralLink] = useState('');
   const [selectedCampaignForViral, setSelectedCampaignForViral] = useState('');
 
@@ -100,7 +103,7 @@ const WalletView: React.FC<WalletViewProps> = ({
       campaignId: selectedCampaignForViral,
       campaignTitle: campaign.title,
       platform: Platform.INSTAGRAM,
-      status: 'VIRAL_CLAIM' as any,
+      status: SubmissionStatus.VIRAL_CLAIM, // ← 'VIRAL_CLAIM' as any hata diya – enum use kiya
       timestamp: Date.now(),
       rewardAmount: campaign.viralPay,
       externalLink: viralLink,
@@ -230,7 +233,7 @@ const WalletView: React.FC<WalletViewProps> = ({
               {['UPI', 'BANK', 'USDT'].map((m) => (
                 <button
                   key={m}
-                  onClick={() => setPaymentSettings({ ...paymentSettings, method: m })}
+                  onClick={() => setPaymentSettings({ ...paymentSettings, method: m as 'UPI' | 'BANK' | 'USDT' })} // ← as cast add kiya
                   className={`py-3 rounded-xl font-black text-[9px] uppercase ${
                     paymentSettings.method === m ? 'bg-cyan-500 text-black shadow-md' : 'bg-white/5 text-slate-500'
                   }`}
