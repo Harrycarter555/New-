@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import { 
   AppState, User, Campaign, UserRole, UserReport 
-} from './types.ts';  // sirf jaruri types rakhe
+} from './types.ts';
 
 import { loadAppState, saveAppState } from './utils/firebaseState';
 import { INITIAL_DATA } from './constants.tsx';
@@ -51,8 +51,6 @@ function App() {
   if (currentView === 'auth') {
     return (
       <AuthView
-        appState={appState}
-        setAppState={setAppState}
         setCurrentUser={setCurrentUser}
         setCurrentView={setCurrentView}
         showToast={showToast}
@@ -128,8 +126,6 @@ function App() {
 
         {currentView === 'admin' && (
           <AdminPanel
-            appState={appState}
-            setAppState={setAppState}
             currentUser={currentUser}
             showToast={showToast}
           />
@@ -162,14 +158,14 @@ function App() {
         currentUser={currentUser}
         onClose={() => setIsReporting(false)}
         onSubmit={(msg) => {
-          const newReport = {
+          const newReport: UserReport = {
             id: `rep-${Date.now()}`,
             userId: currentUser.id,
             username: currentUser.username,
             message: msg,
-            status: 'open' as const,  // literal type fix
-            timestamp: Number(Date.now()),  // arithmetic fix
-          } as UserReport;
+            status: 'open',
+            timestamp: Date.now(),
+          };
 
           setAppState(prev => ({
             ...prev,
@@ -213,7 +209,7 @@ function App() {
           }`}
         >
           {currentUser.role === UserRole.ADMIN ? (
-            <ICONS.User className="w-7 h-7" />  // Users → User (constants mein Users nahi hai)
+            <ICONS.User className="w-7 h-7" />
           ) : (
             <ICONS.Wallet className="w-7 h-7" />
           )}
