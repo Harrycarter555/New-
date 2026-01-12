@@ -9,14 +9,14 @@ import { doc, setDoc, getDoc, query, where, collection, getDocs } from 'firebase
 
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
-import { getPasswordStrength, validateEmail } from '../utils/helpers';
-import { ERROR_MESSAGES, SUCCESS_MESSAGES, ICONS } from '../utils/constants';
+import { getPasswordStrength } from '../utils/helpers';
+import { ICONS } from '../utils/constants';
 import PasswordMeter from './PasswordMeter';
 
 interface AuthViewProps {
   setCurrentUser: (u: User | null) => void;
   setCurrentView: (v: 'auth' | 'campaigns' | 'admin') => void;
-  showToast: (m: string, t?: 'success' | 'error' | 'info' | 'warning') => void;
+  showToast: (m: string, t?: 'success' | 'error') => void;
 }
 
 const AuthView: React.FC<AuthViewProps> = ({
@@ -41,6 +41,12 @@ const AuthView: React.FC<AuthViewProps> = ({
       setRememberMe(true);
     }
   }, []);
+
+  // Validate email
+  const validateEmail = (email: string): boolean => {
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return regex.test(email);
+  };
 
   /* ---------------- SIGN IN ---------------- */
   const signIn = async () => {
@@ -92,17 +98,17 @@ const AuthView: React.FC<AuthViewProps> = ({
       // Set user and navigate
       setCurrentUser(userData);
       setCurrentView(userData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
-      showToast(SUCCESS_MESSAGES.LOGIN_SUCCESS, 'success');
+      showToast(`Welcome back, ${userData.username}!`, 'success');
 
     } catch (error: any) {
       console.error('Login error:', error);
       
       // Handle specific Firebase errors
-      let message = ERROR_MESSAGES.FIREBASE_ERROR;
+      let message = 'Server error. Please try again.';
       if (error.code === 'auth/user-not-found') {
-        message = ERROR_MESSAGES.INVALID_CREDENTIALS;
+        message = 'Invalid email or password';
       } else if (error.code === 'auth/wrong-password') {
-        message = ERROR_MESSAGES.INVALID_CREDENTIALS;
+        message = 'Invalid email or password';
       } else if (error.code === 'auth/too-many-requests') {
         message = 'Too many attempts. Try again later.';
       } else if (error.code === 'auth/user-disabled') {
@@ -182,7 +188,7 @@ const AuthView: React.FC<AuthViewProps> = ({
 
       // Set user and show success
       setCurrentUser(user);
-      showToast(SUCCESS_MESSAGES.SIGNUP_SUCCESS, 'success');
+      showToast('Account created successfully!', 'success');
 
       // Auto-navigate after 3 seconds
       setTimeout(() => {
@@ -192,11 +198,11 @@ const AuthView: React.FC<AuthViewProps> = ({
     } catch (error: any) {
       console.error('Signup error:', error);
       
-      let message = ERROR_MESSAGES.FIREBASE_ERROR;
+      let message = 'Server error. Please try again.';
       if (error.code === 'auth/email-already-in-use') {
-        message = ERROR_MESSAGES.EMAIL_EXISTS;
+        message = 'Email already registered. Please login.';
       } else if (error.code === 'auth/weak-password') {
-        message = ERROR_MESSAGES.WEAK_PASSWORD;
+        message = 'Password should be at least 6 characters.';
       } else if (error.code === 'auth/invalid-email') {
         message = 'Invalid email address';
       }
@@ -487,7 +493,7 @@ const AuthView: React.FC<AuthViewProps> = ({
             </button>
           </p>
           <p className="text-[8px] text-slate-800 font-black uppercase tracking-widest">
-            © 2024 REEL EARN PRO • EARN BY CREATING VIRAL CONTENT
+            © 2026 REEL EARN PRO • EARN BY CREATING VIRAL CONTENT
           </p>
         </div>
       </div>
