@@ -6,8 +6,17 @@ export default {
   ],
   theme: {
     extend: {
-      fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+      colors: {
+        'accent-cyan': 'var(--accent-cyan)',
+        'accent-blue': 'var(--accent-blue)',
+      },
+      borderRadius: {
+        '56': '56px',
+        '48': '48px',
+        '40': '40px',
+      },
+      spacing: {
+        '128': '32rem',
       },
     },
   },
