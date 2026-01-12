@@ -1,33 +1,19 @@
-export const debounce = <T extends (...args: any[]) => any>(
-  func: T,
-  delay: number
-): ((...args: Parameters<T>) => void) => {
+// Performance optimization utilities
+export const debounce = (func: Function, delay: number) => {
   let timeoutId: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
+  return (...args: any[]) => {
     clearTimeout(timeoutId);
     timeoutId = setTimeout(() => func(...args), delay);
   };
 };
 
-export const throttle = <T extends (...args: any[]) => any>(
-  func: T,
-  limit: number
-): ((...args: Parameters<T>) => void) => {
+export const throttle = (func: Function, limit: number) => {
   let inThrottle: boolean;
-  return (...args: Parameters<T>) => {
+  return (...args: any[]) => {
     if (!inThrottle) {
       func(...args);
       inThrottle = true;
-      setTimeout(() => (inThrottle = false), limit);
+      setTimeout(() => inThrottle = false, limit);
     }
   };
-};
-
-export const lazyLoadImage = (src: string): Promise<HTMLImageElement> => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.src = src;
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-  });
 };
