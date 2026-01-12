@@ -11,8 +11,8 @@ interface AdminPanelProps {
 
 const AdminPanel: React.FC<AdminPanelProps> = ({
   appState,
-  _setAppState, // unused ko ignore
-  currentUser,
+  setAppState: _setAppState,  // ← yeh line change kar do (setAppState ko rename kar diya)
+  currentUser: _currentUser,  // ← yeh line change kar do
   showToast,
 }) => {
   const [adminTab, setAdminTab] = useState<
