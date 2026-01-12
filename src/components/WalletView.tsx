@@ -1,7 +1,7 @@
 // src/components/WalletView.tsx
 import React, { useState, useMemo } from 'react';
-import { User, AppState, PayoutStatus, Platform } from '../types'; // AppLog hata diya (unused tha)
-import { ICONS } from '../constants'; // ICONS bhi agar use nahi ho raha toh hata sakte ho, lekin agar kahin use ho raha hai toh rakh lo
+import { User, AppState, PayoutStatus, Platform, SubmissionStatus } from '../types';
+import { ICONS } from '../constants';
 
 interface WalletViewProps {
   currentUser: User;
@@ -18,31 +18,23 @@ const WalletView: React.FC<WalletViewProps> = ({
 }) => {
   const [walletTab, setWalletTab] = useState<'transactions' | 'inbox' | 'payment' | 'viral'>('transactions');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  
-  // Fixed: method ko strict literal type diya + type assertion
   const [paymentSettings, setPaymentSettings] = useState<{
-  method: 'UPI' | 'BANK' | 'USDT';
-  details: string;
-}>({
-  method: (currentUser.payoutMethod as 'UPI' | 'BANK' | 'USDT') || 'UPI',
-  details: currentUser.payoutDetails || '',
-});
+    method: 'UPI' | 'BANK' | 'USDT';
+    details: string;
+  }>({
+    method: (currentUser.payoutMethod as 'UPI' | 'BANK' | 'USDT') || 'UPI',
+    details: currentUser.payoutDetails || '',
+  });
   const [viralLink, setViralLink] = useState('');
   const [selectedCampaignForViral, setSelectedCampaignForViral] = useState('');
 
   const userLogs = useMemo(
-    () =>
-      appState.logs.filter(
-        (l) => l.userId === currentUser.id && ['verify', 'viral', 'payout'].includes(l.type)
-      ),
+    () => appState.logs.filter(l => l.userId === currentUser.id && ['verify', 'viral', 'payout'].includes(l.type)),
     [appState.logs, currentUser.id]
   );
 
   const userMessages = useMemo(
-    () =>
-      appState.broadcasts.filter(
-        (m) => !m.targetUserId || m.targetUserId === currentUser.id
-      ),
+    () => appState.broadcasts.filter(m => !m.targetUserId || m.targetUserId === currentUser.id),
     [appState.broadcasts, currentUser.id]
   );
 
@@ -65,7 +57,7 @@ const WalletView: React.FC<WalletViewProps> = ({
       timestamp: Date.now(),
     };
 
-    setAppState((prev) => ({
+    setAppState(prev => ({
       ...prev,
       payoutRequests: [req, ...prev.payoutRequests],
     }));
@@ -75,9 +67,9 @@ const WalletView: React.FC<WalletViewProps> = ({
   };
 
   const handleUpdatePayment = () => {
-    setAppState((prev) => ({
+    setAppState(prev => ({
       ...prev,
-      users: prev.users.map((u) =>
+      users: prev.users.map(u =>
         u.id === currentUser.id
           ? { ...u, payoutMethod: paymentSettings.method, payoutDetails: paymentSettings.details }
           : u
@@ -87,11 +79,9 @@ const WalletView: React.FC<WalletViewProps> = ({
   };
 
   const handleViralSubmit = () => {
-    if (!viralLink || !selectedCampaignForViral) {
-      return showToast('Please fill all fields', 'error');
-    }
+    if (!viralLink || !selectedCampaignForViral) return showToast('Please fill all fields', 'error');
 
-    const campaign = appState.campaigns.find((c) => c.id === selectedCampaignForViral);
+    const campaign = appState.campaigns.find(c => c.id === selectedCampaignForViral);
     if (!campaign) return;
 
     const viralSubmission = {
@@ -102,13 +92,13 @@ const WalletView: React.FC<WalletViewProps> = ({
       campaignId: selectedCampaignForViral,
       campaignTitle: campaign.title,
       platform: Platform.INSTAGRAM,
-      status: SubmissionStatus.VIRAL_CLAIM, // ← 'VIRAL_CLAIM' as any hata diya – enum use kiya
+      status: SubmissionStatus.VIRAL_CLAIM,  // ← enum use kiya – as any hata diya
       timestamp: Date.now(),
       rewardAmount: campaign.viralPay,
       externalLink: viralLink,
     };
 
-    setAppState((prev) => ({
+    setAppState(prev => ({
       ...prev,
       submissions: [viralSubmission, ...prev.submissions],
     }));
@@ -232,7 +222,7 @@ const WalletView: React.FC<WalletViewProps> = ({
               {['UPI', 'BANK', 'USDT'].map((m) => (
                 <button
                   key={m}
-                  onClick={() => setPaymentSettings({ ...paymentSettings, method: m as 'UPI' | 'BANK' | 'USDT' })} // ← as cast add kiya
+                  onClick={() => setPaymentSettings({ ...paymentSettings, method: m as 'UPI' | 'BANK' | 'USDT' })}
                   className={`py-3 rounded-xl font-black text-[9px] uppercase ${
                     paymentSettings.method === m ? 'bg-cyan-500 text-black shadow-md' : 'bg-white/5 text-slate-500'
                   }`}
