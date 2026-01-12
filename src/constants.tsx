@@ -1,5 +1,5 @@
-// src/constants.ts
-import { AppState, UserRole, UserStatus } from './types';
+// src/constants.tsx
+import { AppState, UserRole, UserStatus } from './types.ts';
 
 export const ICONS = {
   User: (props: React.SVGProps<SVGSVGElement>) => (
@@ -48,7 +48,15 @@ export const ICONS = {
       <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
     </svg>
   ),
-  // aur jo bhi icons use ho rahe hain unko add kar dena
+  // Agar Users icon chahiye bottom nav ke liye (admin ke liye)
+  Users: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
 };
 
 export const INITIAL_DATA: AppState = {
@@ -67,27 +75,18 @@ export const INITIAL_DATA: AppState = {
       readBroadcastIds: [],
       securityKey: 'ADMIN-MASTER'
     },
-    // baaki users yahan paste kar dena (tumhare original code se)
+    // Agar aur users add karne hain toh yahan paste kar dena, warna empty rakh sakte ho
   ],
   campaigns: [
-    // tumhare 3 campaigns yahan paste kar dena
+    // Agar campaigns add karne hain toh yahan paste kar dena, warna empty rakh sakte ho
   ],
   submissions: [],
   payoutRequests: [],
   broadcasts: [
-    { id: 'm-1', content: 'Welcome to ReelEarn Pro! ...', senderId: 'admin-1', timestamp: Date.now() }
+    { id: 'm-1', content: 'Welcome to ReelEarn Pro! Check your missions and start earning.', senderId: 'admin-1', timestamp: Date.now() }
   ],
   reports: [],
   cashflow: { dailyLimit: 100000, todaySpent: 0, startDate: new Date().toISOString().split('T')[0], endDate: new Date().toISOString().split('T')[0] },
   logs: [],
   config: { minWithdrawal: 100 }
 };
-// src/constants.tsx (ICONS object ke andar add kar do)
-Users: (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-  </svg>
-),
