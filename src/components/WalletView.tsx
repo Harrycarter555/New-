@@ -21,13 +21,12 @@ const WalletView: React.FC<WalletViewProps> = ({
   
   // Fixed: method ko strict literal type diya + type assertion
   const [paymentSettings, setPaymentSettings] = useState<{
-    method: 'UPI' | 'BANK' | 'USDT';
-    details: string;
-  }>({
-    method: (currentUser.payoutMethod as 'UPI' | 'BANK' | 'USDT' || 'UPI'),
-    details: currentUser.payoutDetails || '',
-  });
-
+  method: 'UPI' | 'BANK' | 'USDT';
+  details: string;
+}>({
+  method: (currentUser.payoutMethod as 'UPI' | 'BANK' | 'USDT') || 'UPI',
+  details: currentUser.payoutDetails || '',
+});
   const [viralLink, setViralLink] = useState('');
   const [selectedCampaignForViral, setSelectedCampaignForViral] = useState('');
 
