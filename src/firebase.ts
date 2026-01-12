@@ -1,9 +1,7 @@
-// src/firebase.ts
-import { initializeApp } from "firebase/app";
+import { getApps, initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// Tumhare Firebase project ke config se replace kar dena
 const firebaseConfig = {
   apiKey: "AIzaSyD3AGmLFFuUkIzpW0O3YyrgBbkhe98f-wg",
   authDomain: "reelearn-505d9.firebaseapp.com",
@@ -12,7 +10,8 @@ const firebaseConfig = {
   messagingSenderId: "207249486424",
   appId: "1:207249486424:web:63461de258102164f8102d"
 };
-const app = initializeApp(firebaseConfig);
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+
+export const auth = getAuth(app);
 export const db = getFirestore(app);
