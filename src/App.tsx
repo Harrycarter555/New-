@@ -51,12 +51,12 @@ function App() {
   if (currentView === 'auth') {
     return (
       <AuthView
-  appState={appState}
-  setAppState={setAppState}
-  setCurrentUser={setCurrentUser}
-  setCurrentView={setCurrentView}
-  showToast={showToast}
-/>
+        appState={appState}
+        setAppState={setAppState}
+        setCurrentUser={setCurrentUser}
+        setCurrentView={setCurrentView}
+        showToast={showToast}
+      />
     );
   }
 
@@ -66,7 +66,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen pb-40 text-white bg-black">
+    <div className="min-h-screen pb-40 text-white bg-black antialiased font-sans">
       <Header
         user={currentUser}
         onLogout={() => {
@@ -99,7 +99,7 @@ function App() {
         </div>
       )}
 
-      <main className="px-5 max-w-lg mx-auto">
+      <main className="px-5 max-w-lg mx-auto min-h-[calc(100vh-180px)]">
         {currentView === 'campaigns' && (
           <CampaignList
             campaigns={appState.campaigns.filter(c => c.active)}
@@ -128,6 +128,8 @@ function App() {
 
         {currentView === 'admin' && (
           <AdminPanel
+            appState={appState}
+            setAppState={setAppState}
             currentUser={currentUser}
             showToast={showToast}
           />
@@ -160,14 +162,14 @@ function App() {
         currentUser={currentUser}
         onClose={() => setIsReporting(false)}
         onSubmit={(msg) => {
-          const newReport: UserReport = {
+          const newReport = {
             id: `rep-${Date.now()}`,
             userId: currentUser.id,
             username: currentUser.username,
             message: msg,
-            status: 'open',
-            timestamp: Date.now(),
-          };
+            status: 'open' as const,
+            timestamp: Number(Date.now()),
+          } as UserReport;
 
           setAppState(prev => ({
             ...prev,
