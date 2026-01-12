@@ -1,5 +1,6 @@
 // src/firebase.ts
 import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 // Tumhare Firebase project ke config se replace kar dena
@@ -11,7 +12,7 @@ const firebaseConfig = {
   messagingSenderId: "207249486424",
   appId: "1:207249486424:web:63461de258102164f8102d"
 };
-
+const app = initializeApp(firebaseConfig);
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
