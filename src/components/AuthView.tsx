@@ -17,13 +17,15 @@ import {
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 
-interface Props {
+interface AuthViewProps {
+  appState: any;
+  setAppState: React.Dispatch<React.SetStateAction<any>>;
   setCurrentUser: (u: User | null) => void;
   setCurrentView: (v: 'auth' | 'campaigns' | 'admin') => void;
   showToast: (m: string, t?: 'success' | 'error') => void;
 }
 
-const AuthView: React.FC<Props> = ({
+const AuthView: React.FC<AuthViewProps> = ({
   setCurrentUser,
   setCurrentView,
   showToast,
@@ -35,7 +37,6 @@ const AuthView: React.FC<Props> = ({
   const [securityKey, setSecurityKey] = useState('');
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
 
-  /* ---------------- SIGN IN ---------------- */
   const signIn = async () => {
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
@@ -47,6 +48,7 @@ const AuthView: React.FC<Props> = ({
       }
 
       const user = snap.data() as User;
+      if (!user.readBroadcastIds) user.readBroadcastIds = [];
       setCurrentUser(user);
       setCurrentView(user.role === UserRole.ADMIN ? 'admin' : 'campaigns');
       showToast('Login successful', 'success');
@@ -55,7 +57,6 @@ const AuthView: React.FC<Props> = ({
     }
   };
 
-  /* ---------------- SIGN UP ---------------- */
   const signUp = async () => {
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -76,6 +77,7 @@ const AuthView: React.FC<Props> = ({
         pendingBalance: 0,
         totalEarnings: 0,
         joinedAt: Date.now(),
+        readBroadcastIds: [],
       };
 
       await setDoc(doc(db, 'users', cred.user.uid), user);
@@ -86,7 +88,6 @@ const AuthView: React.FC<Props> = ({
     }
   };
 
-  /* ---------------- FORGOT ---------------- */
   const recover = async () => {
     try {
       const q = query(
@@ -100,7 +101,7 @@ const AuthView: React.FC<Props> = ({
         return;
       }
 
-      const email = snap.docs[0].data().email;
+      const email = snap.docs[0].data().email!;
       await sendPasswordResetEmail(auth, email);
       showToast('Reset email sent', 'success');
       setTab('signin');
@@ -109,7 +110,6 @@ const AuthView: React.FC<Props> = ({
     }
   };
 
-  /* ---------------- UI ---------------- */
   if (generatedKey) {
     return (
       <div>
