@@ -6,6 +6,10 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'sans-serif'],
+        brand: ['Montserrat', 'sans-serif'],
+      },
       colors: {
         'accent-cyan': '#00d2ff',
         'accent-blue': '#3a7bd5',
