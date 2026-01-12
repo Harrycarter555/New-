@@ -1,6 +1,7 @@
 import React from 'react';
 import { User, AppLog } from '../../types';
 import { ICONS } from '../../constants';
+import { User, AppLog, UserStatus } from '../../types';
 
 interface UserDetailOverlayProps {
   isOpen: boolean;
@@ -34,7 +35,7 @@ const UserDetailOverlay: React.FC<UserDetailOverlayProps> = ({ isOpen, user, log
             {user.username[0].toUpperCase()}
           </div>
           <h2 className="text-3xl font-black italic text-white">@{user.username}</h2>
-          <span className={`px-4 py-1.5 rounded-full text-[8px] uppercase border ${
+<span className={`px-4 py-1.5 rounded-full text-[8px] uppercase border ${
   user.status === UserStatus.ACTIVE ? 'text-green-500 border-green-500/20 bg-green-500/10' : 'text-red-500 border-red-500/20 bg-red-500/10'
 }`}>
   {user.status}
