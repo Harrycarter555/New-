@@ -35,10 +35,10 @@ const UserDetailOverlay: React.FC<UserDetailOverlayProps> = ({ isOpen, user, log
           </div>
           <h2 className="text-3xl font-black italic text-white">@{user.username}</h2>
           <span className={`px-4 py-1.5 rounded-full text-[8px] uppercase border ${
-            user.status === 'ACTIVE' ? 'text-green-500 border-green-500/20 bg-green-500/10' : 'text-red-500 border-red-500/20 bg-red-500/10'
-          }`}>
-            {user.status}
-          </span>
+  user.status === UserStatus.ACTIVE ? 'text-green-500 border-green-500/20 bg-green-500/10' : 'text-red-500 border-red-500/20 bg-red-500/10'
+}`}>
+  {user.status}
+</span>
         </div>
 
         {/* Balances */}
