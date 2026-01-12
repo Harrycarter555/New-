@@ -1,14 +1,13 @@
 // src/App.tsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import { 
-  AppState, User, Campaign, UserRole, Platform, SubmissionStatus, 
-  PayoutStatus, AppLog, UserReport, BroadcastMessage 
-} from './types';
+  AppState, User, Campaign, UserRole 
+} from './types.ts';
 
 import { loadAppState, saveAppState } from './utils/firebaseState';
-import { INITIAL_DATA } from './constants';
+import { INITIAL_DATA } from './constants.tsx';
 
 import Header from './components/Header';
 import AuthView from './components/AuthView';
@@ -21,7 +20,7 @@ import ProfileOverlay from './components/overlays/ProfileOverlay';
 import UserDetailOverlay from './components/overlays/UserDetailOverlay';
 import ReportingOverlay from './components/overlays/ReportingOverlay';
 
-import { ICONS } from './constants';
+import { ICONS } from './constants.tsx';
 
 const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as string);
 
@@ -33,24 +32,15 @@ function App() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   
-  // Overlays ke liye extra states (jo tumne bola tha bache hain)
   const [selectedUserDetail, setSelectedUserDetail] = useState<User | null>(null);
   const [isReporting, setIsReporting] = useState(false);
 
-  // Load state from Firebase on mount
   useEffect(() => {
-    loadAppState().then(loaded => {
-      if (loaded) {
-        setAppState(loaded);
-      }
-    });
+    loadAppState().then(loaded => loaded && setAppState(loaded));
   }, []);
 
-  // Auto-save to Firebase when logged in & state changes
   useEffect(() => {
-    if (currentUser) {
-      saveAppState(appState);
-    }
+    if (currentUser) saveAppState(appState);
   }, [appState, currentUser]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -70,7 +60,6 @@ function App() {
     );
   }
 
-  // Agar user nahi hai toh wapas auth pe bhej do (safety)
   if (!currentUser) {
     setCurrentView('auth');
     return null;
@@ -100,7 +89,6 @@ function App() {
         }
       />
 
-      {/* Toast Notification */}
       {toast && (
         <div
           className={`fixed top-20 left-4 right-4 z-50 p-4 rounded-2xl text-center font-bold border animate-slide ${
@@ -148,7 +136,6 @@ function App() {
         )}
       </main>
 
-      {/* Overlays */}
       {selectedCampaign && (
         <MissionDetailOverlay
           campaign={selectedCampaign}
@@ -175,7 +162,7 @@ function App() {
         currentUser={currentUser}
         onClose={() => setIsReporting(false)}
         onSubmit={(msg) => {
-          const newReport: UserReport = {
+          const newReport = {
             id: `rep-${Date.now()}`,
             userId: currentUser.id,
             username: currentUser.username,
@@ -192,7 +179,7 @@ function App() {
         showToast={showToast}
       />
 
-      {/* Bottom Navigation - Fixed at bottom */}
+      {/* Bottom Navigation */}
       <nav className="fixed bottom-6 left-4 right-4 z-50 glass-panel p-4 rounded-[48px] flex justify-between items-center border border-white/10 shadow-[0_20px_80px_rgba(0,0,0,0.9)] bg-[#050505]/80 backdrop-blur-3xl border-t-2 border-white/5">
         <button
           onClick={() => setCurrentView('campaigns')}
@@ -225,7 +212,7 @@ function App() {
           }`}
         >
           {currentUser.role === UserRole.ADMIN ? (
-            <ICONS.Users className="w-7 h-7" /> // Agar ICONS.Users nahi hai toh constants.ts mein add kar dena
+            <ICONS.User className="w-7 h-7" />  // Fixed: Users → User
           ) : (
             <ICONS.Wallet className="w-7 h-7" />
           )}
