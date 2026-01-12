@@ -1,37 +1,104 @@
 /* src/index.css */
+
+/* Tailwind Directives – yeh sabse upar honi chahiye */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Global Base Styles */
 @layer base {
+  :root {
+    --bg-deep: #050505;
+    --bg-card: #121212;
+    --accent-cyan: #00d2ff;
+    --accent-blue: #3a7bd5;
+  }
+
   body {
-    @apply bg-black text-white font-sans;
+    @apply bg-[var(--bg-deep)] text-white font-sans m-0 p-0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior-y: contain;
+  }
+
+  #root {
+    min-height: 100vh;
   }
 }
 
-/* Glassmorphism effect jo tum use kar rahe ho */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+/* Custom Components */
+@layer components {
+  .glass-panel {
+    background: rgba(18, 18, 18, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border-radius: 1.5rem; /* rounded-[24px] ke liye fallback */
+  }
+
+  .dark-mesh {
+    background: radial-gradient(at 0% 0%, hsla(214,100%,10%,0.8) 0, transparent 50%),
+                radial-gradient(at 100% 0%, hsla(240,100%,5%,0.8) 0, transparent 50%);
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-blue)] text-black font-black uppercase tracking-wider py-4 px-8 rounded-full shadow-lg;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .btn-primary:hover {
+    @apply brightness-110 scale-105;
+  }
+
+  .btn-primary:active {
+    @apply scale-95 brightness-90;
+  }
+
+  .neon-glow {
+    box-shadow: 0 0 15px rgba(0, 210, 255, 0.4), 0 0 30px rgba(0, 210, 255, 0.2);
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Animations */
+  @keyframes slide {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-slide {
+    animation: slide 0.6s ease-out forwards;
+  }
+
+  /* Extra Utilities jo tere code mein use ho rahi hain */
+  .backdrop-blur-xl {
+    backdrop-filter: blur(24px);
+  }
+
+  .border-t-8 {
+    border-top-width: 8px;
+  }
+
+  .tracking-[0.4em] {
+    letter-spacing: 0.4em;
+  }
+
+  .font-black {
+    font-weight: 900;
+  }
 }
 
-/* Hide scrollbar */
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.hide-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
+/* Google Fonts (index.html se hata ke yahan import kar sakte ho agar chaho) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@800;900&display=swap');
 
-/* Animations */
-@keyframes slide {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-slide {
-  animation: slide 0.6s ease-out forwards;
+/* Brand Font */
+.brand-font {
+  font-family: 'Montserrat', sans-serif;
 }
