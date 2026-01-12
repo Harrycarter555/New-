@@ -18,10 +18,13 @@ const WalletView: React.FC<WalletViewProps> = ({
 }) => {
   const [walletTab, setWalletTab] = useState<'transactions' | 'inbox' | 'payment' | 'viral'>('transactions');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [paymentSettings, setPaymentSettings] = useState({
-    method: currentUser.payoutMethod || 'UPI',
-    details: currentUser.payoutDetails || '',
-  });
+  const [paymentSettings, setPaymentSettings] = useState<{
+  method: 'UPI' | 'BANK' | 'USDT';
+  details: string;
+}>({
+  method: (currentUser.payoutMethod as 'UPI' | 'BANK' | 'USDT') || 'UPI',
+  details: currentUser.payoutDetails || '',
+});
   const [viralLink, setViralLink] = useState('');
   const [selectedCampaignForViral, setSelectedCampaignForViral] = useState('');
 
