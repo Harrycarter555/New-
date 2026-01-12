@@ -1,3 +1,4 @@
+// src/components/AuthView.tsx
 import React, { useState } from 'react';
 import {
   signInWithEmailAndPassword,
@@ -15,17 +16,19 @@ import {
 } from 'firebase/firestore';
 
 import { auth, db } from '../firebase';
-import { User, UserRole, UserStatus } from '../types';
+import { User, UserRole, UserStatus, AppState } from '../types';
 
 interface AuthViewProps {
-  appState: any;
-  setAppState: React.Dispatch<React.SetStateAction<any>>;
+  appState: AppState;
+  setAppState: React.Dispatch<React.SetStateAction<AppState>>;
   setCurrentUser: (u: User | null) => void;
   setCurrentView: (v: 'auth' | 'campaigns' | 'admin') => void;
   showToast: (m: string, t?: 'success' | 'error') => void;
 }
 
 const AuthView: React.FC<AuthViewProps> = ({
+  appState,
+  setAppState,
   setCurrentUser,
   setCurrentView,
   showToast,
@@ -37,6 +40,7 @@ const AuthView: React.FC<AuthViewProps> = ({
   const [securityKey, setSecurityKey] = useState('');
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
 
+  /* ---------------- SIGN IN ---------------- */
   const signIn = async () => {
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
@@ -49,6 +53,7 @@ const AuthView: React.FC<AuthViewProps> = ({
 
       const user = snap.data() as User;
       if (!user.readBroadcastIds) user.readBroadcastIds = [];
+
       setCurrentUser(user);
       setCurrentView(user.role === UserRole.ADMIN ? 'admin' : 'campaigns');
       showToast('Login successful', 'success');
@@ -57,14 +62,12 @@ const AuthView: React.FC<AuthViewProps> = ({
     }
   };
 
+  /* ---------------- SIGN UP ---------------- */
   const signUp = async () => {
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
 
-      const key = `RE-${Math.random()
-        .toString(36)
-        .substring(2, 8)
-        .toUpperCase()}-${Date.now().toString().slice(-4)}`;
+      const key = `RE-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Date.now().toString().slice(-4)}`;
 
       const user: User = {
         id: cred.user.uid,
@@ -82,18 +85,23 @@ const AuthView: React.FC<AuthViewProps> = ({
 
       await setDoc(doc(db, 'users', cred.user.uid), user);
       setGeneratedKey(key);
+
+      // Add to appState.users (for instant state update without reload)
+      setAppState(prev => ({
+        ...prev,
+        users: [user, ...prev.users],
+      }));
+
       showToast('Account created', 'success');
     } catch (e: any) {
       showToast(e.message, 'error');
     }
   };
 
+  /* ---------------- FORGOT ---------------- */
   const recover = async () => {
     try {
-      const q = query(
-        collection(db, 'users'),
-        where('securityKey', '==', securityKey)
-      );
+      const q = query(collection(db, 'users'), where('securityKey', '==', securityKey));
       const snap = await getDocs(q);
 
       if (snap.empty) {
@@ -110,14 +118,13 @@ const AuthView: React.FC<AuthViewProps> = ({
     }
   };
 
+  /* ---------------- UI ---------------- */
   if (generatedKey) {
     return (
       <div>
         <h2>RECOVERY KEY</h2>
         <p>{generatedKey}</p>
-        <button onClick={() => setGeneratedKey(null)}>
-          Continue
-        </button>
+        <button onClick={() => setGeneratedKey(null)}>Continue</button>
       </div>
     );
   }
