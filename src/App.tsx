@@ -51,10 +51,12 @@ function App() {
   if (currentView === 'auth') {
     return (
       <AuthView
-        setCurrentUser={setCurrentUser}
-        setCurrentView={setCurrentView}
-        showToast={showToast}
-      />
+  appState={appState}
+  setAppState={setAppState}
+  setCurrentUser={setCurrentUser}
+  setCurrentView={setCurrentView}
+  showToast={showToast}
+/>
     );
   }
 
