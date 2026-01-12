@@ -1,22 +1,21 @@
 // vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import path from 'path'; // optional - aliases ke liye
+import tailwindcss from 'tailwindcss';      // ← yeh import add kiya
+import autoprefixer from 'autoprefixer';   // ← yeh import add kiya
+import path from 'path';
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
 
-  // Base path (agar GitHub Pages ya subfolder pe deploy kar rahe ho toh change karna)
+  // Base path (agar subfolder deploy kar rahe ho toh change karna)
   base: '/',
 
-  // Env variables handling – .env files se VITE_ prefix wale variables automatically available hote hain
-  // process.env ko define karne ki zarurat nahi, lekin agar chahiye toh rakh sakte ho
-  define: {
-    // 'process.env': {} // optional - agar purane code mein process.env use ho raha ho
-  },
+  // Env variables (VITE_ prefix wale automatically kaam karte hain)
+  define: {},
 
-  // Resolve aliases – src folder ko @ se access karne ke liye (optional lekin bahut helpful)
+  // Resolve aliases (optional – @ se src import karne ke liye)
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -26,25 +25,20 @@ export default defineConfig({
     },
   },
 
-  // CSS/PostCSS config – Tailwind ke liye must
+  // CSS/PostCSS config – Tailwind ke liye yeh sahi tareeka hai
   css: {
     postcss: {
       plugins: [
-        require('tailwindcss'),
-        require('autoprefixer'),
+        tailwindcss(),     // ← require ki jagah import use kiya
+        autoprefixer(),    // ← require ki jagah import use kiya
       ],
     },
   },
 
   // Build optimizations (Vercel ke liye helpful)
   build: {
-    // Sourcemap for debugging (production mein false kar sakte ho)
-    sourcemap: true,
-
-    // Chunk size warning threshold (optional)
+    sourcemap: true,  // debugging ke liye
     chunkSizeWarningLimit: 1000,
-
-    // Rollup options – minification aur tree-shaking better karne ke liye
     rollupOptions: {
       output: {
         manualChunks: {
@@ -56,10 +50,10 @@ export default defineConfig({
     },
   },
 
-  // Server config for local dev (optional)
+  // Local dev server config (optional)
   server: {
     port: 5173,
-    open: true, // browser auto open
+    open: true,
     hmr: true,
   },
 });
