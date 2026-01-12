@@ -1,44 +1,31 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  
-  css: {
-    postcss: {
-      plugins: [
-        require('tailwindcss'),
-        require('autoprefixer'),
-      ],
-    },
+  base: '/',
+  server: {
+    port: 3000,
+    host: true,
+    open: false
   },
-
-  resolve: {
-    alias: {
-      '@': '/src',
-      '@components': '/src/components',
-      '@utils': '/src/utils',
-      '@hooks': '/src/hooks',
-    },
-  },
-
   build: {
-    sourcemap: true,
+    outDir: 'dist',
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
-          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
-          ui: ['@google/generative-ai'],
+          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore']
         }
       }
-    },
-    chunkSizeWarningLimit: 1000,
+    }
   },
-
-  server: {
-    port: 3000,
-    host: true,
-    open: true,
-  },
-});
+  css: {
+    preprocessorOptions: {
+      css: {
+        additionalData: `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@800;900&display=swap');`
+      }
+    }
+  }
+})
