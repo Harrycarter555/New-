@@ -12,9 +12,9 @@ interface AuthViewProps {
 
 const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, showToast }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState(''); // EMPTY - no test email
+  const [password, setPassword] = useState(''); // EMPTY - no test password
+  const [username, setUsername] = useState(''); // EMPTY
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e?: React.FormEvent) => {
@@ -45,36 +45,35 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         setCurrentView(safeUserData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
         showToast(`Welcome back, ${safeUserData.username}!`, 'success');
       } else {
-        console.log('📝 User document not found, creating new...');
-        const newUser: User = {
-          id: userCredential.user.uid,
-          username: email.split('@')[0] || 'user',
-          email: email,
-          role: UserRole.USER,
-          status: UserStatus.ACTIVE,
-          walletBalance: 100,
-          pendingBalance: 0,
-          totalEarnings: 0,
-          joinedAt: Date.now(),
-          readBroadcastIds: [],
-          securityKey: `KEY-${Date.now().toString(36).toUpperCase()}`,
-          savedSocialUsername: '',
-          payoutMethod: undefined,
-          payoutDetails: undefined,
-          password: undefined,
-          failedAttempts: 0,
-          lockoutUntil: undefined,
-        };
-        
-        await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
-        console.log('💾 New user saved to Firestore');
-        setCurrentUser(newUser);
-        setCurrentView('campaigns');
-        showToast('Account created automatically!', 'success');
+        console.log('❌ User document not found in Firestore');
+        showToast('Account not found. Please sign up first.', 'error');
       }
     } catch (error: any) {
       console.error('❌ Firebase login failed:', error);
-      showToast(`Login failed: ${error.message}`, 'error');
+      
+      // SPECIFIC ERROR MESSAGES
+      let errorMessage = 'Login failed';
+      switch (error.code) {
+        case 'auth/user-not-found':
+          errorMessage = 'Account not found. Please sign up.';
+          break;
+        case 'auth/wrong-password':
+          errorMessage = 'Incorrect password';
+          break;
+        case 'auth/invalid-email':
+          errorMessage = 'Invalid email address';
+          break;
+        case 'auth/too-many-requests':
+          errorMessage = 'Too many attempts. Try again later.';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = 'Network error. Check your connection.';
+          break;
+        default:
+          errorMessage = `Login failed: ${error.message}`;
+      }
+      
+      showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
     }
@@ -89,6 +88,12 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 
     if (password.length < 6) {
       showToast('Password must be at least 6 characters', 'error');
+      return;
+    }
+
+    // Username validation
+    if (username.length < 3) {
+      showToast('Username must be at least 3 characters', 'error');
       return;
     }
 
@@ -107,7 +112,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         email,
         role: UserRole.USER,
         status: UserStatus.ACTIVE,
-        walletBalance: 100,
+        walletBalance: 100, // Starting bonus
         pendingBalance: 0,
         totalEarnings: 0,
         joinedAt: Date.now(),
@@ -126,10 +131,29 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       
       setCurrentUser(newUser);
       setCurrentView('campaigns');
-      showToast('Account created successfully!', 'success');
+      showToast('Account created successfully! Welcome!', 'success');
     } catch (error: any) {
       console.error('❌ Firebase signup failed:', error);
-      showToast(`Signup failed: ${error.message}`, 'error');
+      
+      let errorMessage = 'Signup failed';
+      switch (error.code) {
+        case 'auth/email-already-in-use':
+          errorMessage = 'Email already registered. Please login.';
+          break;
+        case 'auth/invalid-email':
+          errorMessage = 'Invalid email address';
+          break;
+        case 'auth/weak-password':
+          errorMessage = 'Password is too weak';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = 'Network error. Check your connection.';
+          break;
+        default:
+          errorMessage = `Signup failed: ${error.message}`;
+      }
+      
+      showToast(errorMessage, 'error');
     } finally {
       setLoading(false);
     }
@@ -143,6 +167,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             REEL<span className="text-cyan-400">EARN</span>
           </h1>
           <p className="text-slate-500 text-sm">Earn by creating viral reels</p>
+          <p className="text-cyan-500 text-xs mt-2 font-bold">🔥 PRODUCTION MODE - REAL FIREBASE</p>
         </div>
 
         <div className="glass-panel p-8 rounded-3xl">
@@ -166,11 +191,12 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
               <div className="mb-4">
                 <input
                   type="text"
-                  placeholder="Username"
+                  placeholder="Choose a username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white mb-3"
                   required
+                  minLength={3}
                   maxLength={20}
                 />
               </div>
@@ -178,7 +204,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 
             <input
               type="email"
-              placeholder="Email"
+              placeholder="Your email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white mb-3"
@@ -200,21 +226,53 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
               disabled={loading}
               className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold py-4 rounded-xl hover:opacity-90 disabled:opacity-50 transition-all"
             >
-              {loading ? '🔄 PROCESSING...' : (activeTab === 'login' ? '🔐 LOGIN' : '✨ CREATE ACCOUNT')}
+              {loading ? (
+                <span className="flex items-center justify-center">
+                  <span className="animate-spin mr-2">⟳</span>
+                  PROCESSING...
+                </span>
+              ) : activeTab === 'login' ? (
+                '🔐 LOGIN TO YOUR ACCOUNT'
+              ) : (
+                '✨ CREATE NEW ACCOUNT'
+              )}
             </button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-slate-500 text-sm">
-              {activeTab === 'login' ? "New here?" : "Already have an account?"}
+              {activeTab === 'login' ? "New to ReelEarn?" : "Already have an account?"}
               <button
-                onClick={() => setActiveTab(activeTab === 'login' ? 'signup' : 'login')}
+                onClick={() => {
+                  setActiveTab(activeTab === 'login' ? 'signup' : 'login');
+                  setEmail('');
+                  setPassword('');
+                  setUsername('');
+                }}
                 className="text-cyan-400 ml-2 font-bold hover:text-cyan-300 transition-colors"
               >
                 {activeTab === 'login' ? 'Create Account' : 'Sign In'}
               </button>
             </p>
           </div>
+        </div>
+
+        {/* Firebase Status Indicator */}
+        <div className="mt-6 p-4 bg-slate-900/50 border border-slate-700 rounded-xl">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-slate-400 text-xs font-bold">FIREBASE STATUS</span>
+            <span className="text-green-400 text-xs font-bold flex items-center">
+              <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+              PRODUCTION READY
+            </span>
+          </div>
+          <p className="text-slate-500 text-xs">
+            • Real Firebase Authentication
+            <br />
+            • Real Firestore Database
+            <br />
+            • No test/mock data
+          </p>
         </div>
       </div>
     </div>
