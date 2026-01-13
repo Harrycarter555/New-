@@ -1,26 +1,31 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/',
-  server: {
-    port: 3000,
-    host: true
-  },
+  base: './', // CHANGED FROM '/' to './'
+  publicDir: 'public',
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    cssCodeSplit: true,
     rollupOptions: {
       output: {
-        assetFileNames: (assetInfo) => {
-          if (assetInfo.name?.endsWith('.css')) {
-            return 'assets/[name]-[hash][extname]'
-          }
-          return 'assets/[name]-[hash][extname]'
-        }
+        // यह CSS और JS files को correct hash देगा
+        assetFileNames: 'assets/[name]-[hash][extname]',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js'
       }
+    },
+    // CSS को अलग file में generate करने के लिए
+    cssCodeSplit: true,
+    // CSS minify करने के लिए
+    minify: 'terser'
+  },
+  // CSS optimization
+  css: {
+    modules: {
+      localsConvention: 'camelCase'
     }
   }
 })
