@@ -25,7 +25,7 @@ import ReportingOverlay from './components/overlays/ReportingOverlay';
 import { ICONS } from './constants.tsx';
 
 // Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as string || 'demo-key');
+const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as string || '');
 
 function App() {
   const [appState, setAppState] = useState<AppState>(INITIAL_DATA);
@@ -53,7 +53,7 @@ function App() {
         }
       } catch (error) {
         console.error('App initialization error:', error);
-        showToast('Using offline mode', 'error');
+        // No mock toast in production
       } finally {
         setLoading(false);
       }
@@ -90,10 +90,11 @@ function App() {
           } else {
             console.log('⚠️ User doc not found, staying in auth view');
             // Don't set user, stay in auth view
+            showToast('User account not found. Please sign up.', 'error');
           }
         } catch (error) {
           console.error('❌ Error fetching user:', error);
-          showToast('Firestore error. Using offline mode.', 'error');
+          showToast('Database connection error. Please try again.', 'error');
         }
       } else {
         console.log('👤 No user logged in');
@@ -143,7 +144,7 @@ function App() {
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-cyan-400 font-bold text-lg">Loading ReelEarn Pro...</p>
-          <p className="text-slate-500 text-sm mt-2">Initializing Firebase</p>
+          <p className="text-slate-500 text-sm mt-2">Connecting to services</p>
         </div>
       </div>
     );
@@ -301,6 +302,11 @@ function App() {
         user={currentUser}
         onClose={() => setIsProfileOpen(false)}
       />
+
+      {/* Firebase fallback warning (hidden but in DOM) */}
+      <div className="hidden" id="firebase-warning">
+        Firebase connection required for full functionality
+      </div>
     </div>
   );
 }
