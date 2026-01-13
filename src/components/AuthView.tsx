@@ -12,9 +12,9 @@ interface AuthViewProps {
 
 const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, showToast }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
-  const [email, setEmail] = useState('test@example.com');
-  const [password, setPassword] = useState('123456');
-  const [username, setUsername] = useState('testuser');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e?: React.FormEvent) => {
@@ -28,16 +28,13 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       setLoading(true);
       console.log('🔐 Attempting Firebase login...');
       
-      // Try Firebase login
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       console.log('✅ Firebase auth successful:', userCredential.user.uid);
       
-      // Get user data from Firestore
       const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
       
       if (userDoc.exists()) {
         const userData = userDoc.data() as User;
-        // Ensure readBroadcastIds exists
         const safeUserData = {
           ...userData,
           readBroadcastIds: userData.readBroadcastIds || [],
@@ -49,7 +46,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         showToast(`Welcome back, ${safeUserData.username}!`, 'success');
       } else {
         console.log('📝 User document not found, creating new...');
-        // Create complete user object with all required fields
         const newUser: User = {
           id: userCredential.user.uid,
           username: email.split('@')[0] || 'user',
@@ -60,7 +56,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
           pendingBalance: 0,
           totalEarnings: 0,
           joinedAt: Date.now(),
-          readBroadcastIds: [], // MUST be included
+          readBroadcastIds: [],
           securityKey: `KEY-${Date.now().toString(36).toUpperCase()}`,
           savedSocialUsername: '',
           payoutMethod: undefined,
@@ -78,38 +74,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       }
     } catch (error: any) {
       console.error('❌ Firebase login failed:', error);
-      
-      // Fallback to mock login if Firebase fails
-      console.log('🔄 Falling back to mock login...');
-      
-      const mockUser: User = {
-        id: 'mock-user-' + Date.now(),
-        username: email.split('@')[0] || 'mockuser',
-        email: email,
-        role: UserRole.USER,
-        status: UserStatus.ACTIVE,
-        walletBalance: 1000,
-        pendingBalance: 500,
-        totalEarnings: 1500,
-        joinedAt: Date.now(),
-        readBroadcastIds: [], // Empty array
-        securityKey: 'MOCK-KEY-' + Date.now().toString(36),
-        savedSocialUsername: '',
-        payoutMethod: undefined,
-        payoutDetails: undefined,
-        password: undefined,
-        failedAttempts: 0,
-        lockoutUntil: undefined,
-      };
-      
-      setCurrentUser(mockUser);
-      setCurrentView('campaigns');
-      showToast('Using development mode (Firebase unavailable)', 'success');
-      
-      // Optional: Show error message
-      if (error.code) {
-        console.log('Firebase error code:', error.code);
-      }
+      showToast(`Login failed: ${error.message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -131,7 +96,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       setLoading(true);
       console.log('📝 Creating new account...');
       
-      // Try Firebase signup
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       console.log('✅ Firebase account created:', userCredential.user.uid);
       
@@ -147,7 +111,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         pendingBalance: 0,
         totalEarnings: 0,
         joinedAt: Date.now(),
-        readBroadcastIds: [], // MUST be included
+        readBroadcastIds: [],
         securityKey,
         savedSocialUsername: '',
         payoutMethod: undefined,
@@ -165,66 +129,10 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       showToast('Account created successfully!', 'success');
     } catch (error: any) {
       console.error('❌ Firebase signup failed:', error);
-      
-      // Fallback to mock signup
-      const mockUser: User = {
-        id: 'mock-user-' + Date.now(),
-        username,
-        email,
-        role: UserRole.USER,
-        status: UserStatus.ACTIVE,
-        walletBalance: 100,
-        pendingBalance: 0,
-        totalEarnings: 0,
-        joinedAt: Date.now(),
-        readBroadcastIds: [], // Empty array
-        securityKey: 'MOCK-KEY-' + Date.now().toString(36),
-        savedSocialUsername: '',
-        payoutMethod: undefined,
-        payoutDetails: undefined,
-        password: undefined,
-        failedAttempts: 0,
-        lockoutUntil: undefined,
-      };
-      
-      setCurrentUser(mockUser);
-      setCurrentView('campaigns');
-      showToast('Account created (development mode)', 'success');
+      showToast(`Signup failed: ${error.message}`, 'error');
     } finally {
       setLoading(false);
     }
-  };
-
-  // Simple test login (direct mock)
-  const testLogin = () => {
-    setLoading(true);
-    
-    const mockUser: User = {
-      id: 'test-user-' + Date.now(),
-      username: 'testuser',
-      email: 'test@example.com',
-      role: UserRole.USER,
-      status: UserStatus.ACTIVE,
-      walletBalance: 1000,
-      pendingBalance: 500,
-      totalEarnings: 1500,
-      joinedAt: Date.now(),
-      readBroadcastIds: [], // Empty array
-      securityKey: 'TEST-KEY-123',
-      savedSocialUsername: '',
-      payoutMethod: undefined,
-      payoutDetails: undefined,
-      password: undefined,
-      failedAttempts: 0,
-      lockoutUntil: undefined,
-    };
-    
-    setTimeout(() => {
-      setCurrentUser(mockUser);
-      setCurrentView('campaigns');
-      showToast('Development login successful!', 'success');
-      setLoading(false);
-    }, 500);
   };
 
   return (
@@ -296,14 +204,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             </button>
           </form>
 
-          {/* Test login button */}
-          <button
-            onClick={testLogin}
-            className="w-full mt-4 bg-green-500/20 text-green-400 border border-green-500/30 py-3 rounded-xl text-sm font-bold hover:bg-green-500/30 transition-all"
-          >
-            🚀 QUICK TEST LOGIN (Development Mode)
-          </button>
-
           <div className="mt-6 text-center">
             <p className="text-slate-500 text-sm">
               {activeTab === 'login' ? "New here?" : "Already have an account?"}
@@ -315,18 +215,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
               </button>
             </p>
           </div>
-        </div>
-
-        {/* Development info */}
-        <div className="mt-6 p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-xl">
-          <p className="text-cyan-400 text-xs font-bold uppercase mb-2">🛠️ Development Mode</p>
-          <p className="text-slate-400 text-xs">
-            • Using mock data for development
-            <br />
-            • Firebase will auto-enable when available
-            <br />
-            • Click "QUICK TEST LOGIN" to bypass Firebase
-          </p>
         </div>
       </div>
     </div>
