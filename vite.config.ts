@@ -6,25 +6,20 @@ export default defineConfig({
   base: '/',
   server: {
     port: 3000,
-    host: true,
-    open: false
+    host: true
   },
   build: {
     outDir: 'dist',
-    sourcemap: false,
+    assetsDir: 'assets',
+    cssCodeSplit: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore']
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name?.endsWith('.css')) {
+            return 'assets/[name]-[hash][extname]'
+          }
+          return 'assets/[name]-[hash][extname]'
         }
-      }
-    }
-  },
-  css: {
-    preprocessorOptions: {
-      css: {
-        additionalData: `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@800;900&display=swap');`
       }
     }
   }
