@@ -1,7 +1,7 @@
-// src/App.tsx
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 
 import { 
   AppState, User, Campaign, UserRole, UserReport 
@@ -9,9 +9,7 @@ import {
 
 import { loadAppState, saveAppState } from './utils/firebaseState';
 import { INITIAL_DATA } from './constants.tsx';
-import { auth } from './firebase';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth, db } from './firebase';
 
 import Header from './components/Header';
 import AuthView from './components/AuthView';
@@ -26,20 +24,8 @@ import ReportingOverlay from './components/overlays/ReportingOverlay';
 
 import { ICONS } from './constants.tsx';
 
-// Performance utilities
-const debounce = <T extends (...args: any[]) => any>(
-  func: T,
-  delay: number
-): ((...args: Parameters<T>) => void) => {
-  let timeoutId: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => func(...args), delay);
-  };
-};
-
 // Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as string);
+const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as string || 'demo-key');
 
 function App() {
   const [appState, setAppState] = useState<AppState>(INITIAL_DATA);
@@ -52,22 +38,22 @@ function App() {
   const [isReporting, setIsReporting] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Refs for cleanup
+  // Refs
   const authUnsubscribeRef = useRef<(() => void) | null>(null);
-  const sessionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize app
   useEffect(() => {
     const initApp = async () => {
       try {
-        // Load initial state
+        console.log('🚀 Initializing ReelEarn Pro...');
         const loadedState = await loadAppState();
         if (loadedState) {
           setAppState(loadedState);
+          console.log('✅ App state loaded');
         }
       } catch (error) {
         console.error('App initialization error:', error);
-        showToast('Failed to load app data', 'error');
+        showToast('Using offline mode', 'error');
       } finally {
         setLoading(false);
       }
@@ -78,37 +64,39 @@ function App() {
 
   // Firebase auth state listener
   useEffect(() => {
+    console.log('🔐 Setting up Firebase auth listener...');
+    
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log('Firebase auth state changed:', firebaseUser?.email);
+      
       if (firebaseUser) {
         try {
-          // Fetch user data from Firestore
+          console.log('📥 Fetching user data from Firestore...');
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          
           if (userDoc.exists()) {
             const userData = userDoc.data() as User;
-            setCurrentUser(userData);
+            console.log('✅ User found:', userData.username);
             
-            // Set view based on role
-            if (userData.role === UserRole.ADMIN) {
-              setCurrentView('admin');
-            } else {
-              setCurrentView('campaigns');
-            }
+            // Ensure readBroadcastIds exists
+            const safeUserData = {
+              ...userData,
+              readBroadcastIds: userData.readBroadcastIds || [],
+            };
             
-            showToast(`Welcome back, ${userData.username}!`, 'success');
+            setCurrentUser(safeUserData);
+            setCurrentView(safeUserData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
+            showToast(`Welcome ${safeUserData.username}!`, 'success');
           } else {
-            // User document not found
-            setCurrentUser(null);
-            setCurrentView('auth');
-            showToast('User profile not found. Please sign up again.', 'error');
+            console.log('⚠️ User doc not found, staying in auth view');
+            // Don't set user, stay in auth view
           }
         } catch (error) {
-          console.error('Error fetching user data:', error);
-          setCurrentUser(null);
-          setCurrentView('auth');
-          showToast('Error loading user data', 'error');
+          console.error('❌ Error fetching user:', error);
+          showToast('Firestore error. Using offline mode.', 'error');
         }
       } else {
-        // No user logged in
+        console.log('👤 No user logged in');
         setCurrentUser(null);
         setCurrentView('auth');
       }
@@ -122,59 +110,11 @@ function App() {
     };
   }, []);
 
-  // Auto-save with debounce
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const debouncedSave = debounce(async () => {
-      try {
-        await saveAppState(appState);
-      } catch (error) {
-        console.error('Auto-save failed:', error);
-      }
-    }, 2000); // 2 seconds debounce
-
-    debouncedSave();
-  }, [appState, currentUser]);
-
-  // Session timeout (30 minutes)
-  useEffect(() => {
-    const resetSessionTimer = () => {
-      if (sessionTimeoutRef.current) {
-        clearTimeout(sessionTimeoutRef.current);
-      }
-
-      if (currentUser && currentUser.role !== UserRole.ADMIN) {
-        sessionTimeoutRef.current = setTimeout(() => {
-          setCurrentUser(null);
-          setCurrentView('auth');
-          showToast('Session expired. Please login again.', 'error');
-        }, 30 * 60 * 1000); // 30 minutes
-      }
-    };
-
-    // Reset on user interaction
-    const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
-    events.forEach(event => {
-      window.addEventListener(event, resetSessionTimer);
-    });
-
-    resetSessionTimer();
-
-    return () => {
-      if (sessionTimeoutRef.current) {
-        clearTimeout(sessionTimeoutRef.current);
-      }
-      events.forEach(event => {
-        window.removeEventListener(event, resetSessionTimer);
-      });
-    };
-  }, [currentUser]);
-
   // Toast helper
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    console.log(`Toast: ${type} - ${message}`);
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3200);
+    setTimeout(() => setToast(null), 3000);
   }, []);
 
   // Logout handler
@@ -192,40 +132,9 @@ function App() {
 
   // Campaign selection handler
   const handleCampaignSelect = useCallback((campaign: Campaign) => {
+    console.log('Campaign selected:', campaign.title);
     setSelectedCampaign(campaign);
   }, []);
-
-  // Report submission handler
-  const handleReportSubmit = useCallback((message: string) => {
-    if (!currentUser) return;
-
-    const newReport = {
-      id: `rep-${Date.now()}`,
-      userId: currentUser.id,
-      username: currentUser.username,
-      message: message.trim(),
-      status: 'open' as const,
-      timestamp: Date.now(),
-    } as UserReport;
-
-    setAppState(prev => ({
-      ...prev,
-      reports: [newReport, ...prev.reports],
-      logs: [
-        {
-          id: `log-${Date.now()}`,
-          userId: currentUser.id,
-          username: currentUser.username,
-          type: 'system',
-          message: `${currentUser.username} submitted a report`,
-          timestamp: Date.now(),
-        },
-        ...prev.logs.slice(0, 49) // Keep only last 50 logs
-      ]
-    }));
-
-    showToast('Report submitted to admin', 'success');
-  }, [currentUser, showToast]);
 
   // Loading state
   if (loading) {
@@ -233,7 +142,8 @@ function App() {
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-cyan-400 font-black uppercase tracking-widest text-sm">LOADING REEL EARN PRO...</p>
+          <p className="text-cyan-400 font-bold text-lg">Loading ReelEarn Pro...</p>
+          <p className="text-slate-500 text-sm mt-2">Initializing Firebase</p>
         </div>
       </div>
     );
@@ -250,35 +160,46 @@ function App() {
     );
   }
 
-  // Main app view
+  // Main app view (when user is logged in)
+  if (!currentUser) {
+    // Should not happen, but as safety
+    setCurrentView('auth');
+    return null;
+  }
+
   return (
-    <div className="min-h-screen pb-40 text-white bg-black antialiased font-sans hide-scrollbar">
+    <div className="min-h-screen pb-40 text-white bg-black antialiased font-sans">
       {/* Header */}
       <Header
         user={currentUser}
         onLogout={handleLogout}
         onProfileClick={() => setIsProfileOpen(true)}
         onNotifyClick={() => {
-          if (currentUser!.role === UserRole.ADMIN) {
+          if (currentUser.role === UserRole.ADMIN) {
             setCurrentView('admin');
           } else {
             setCurrentView('wallet');
           }
         }}
         unreadCount={
-          currentUser!.role === UserRole.ADMIN
+          currentUser.role === UserRole.ADMIN
             ? appState.reports.filter(r => r.status === 'open').length
-            : appState.broadcasts.filter(m => 
-                !m.targetUserId || m.targetUserId === currentUser!.id
-              ).filter(m => !currentUser!.readBroadcastIds.includes(m.id)).length
+            : appState.broadcasts.filter(m => {
+                const readIds = currentUser.readBroadcastIds || [];
+                const isTargeted = !m.targetUserId || m.targetUserId === currentUser.id;
+                const isUnread = !readIds.includes(m.id);
+                return isTargeted && isUnread;
+              }).length
         }
       />
 
-      {/* Toast Notifications */}
+      {/* Toast */}
       {toast && (
         <div
-          className={`fixed top-20 left-4 right-4 z-50 p-4 rounded-2xl text-center font-bold border animate-slide ${
-            toast.type === 'success' ? 'bg-cyan-600 border-cyan-400' : 'bg-red-600 border-red-400'
+          className={`fixed top-24 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-xl text-center font-bold border ${
+            toast.type === 'success' 
+              ? 'bg-cyan-600 border-cyan-400 text-white' 
+              : 'bg-red-600 border-red-400 text-white'
           }`}
         >
           {toast.message}
@@ -296,7 +217,7 @@ function App() {
 
         {currentView === 'verify' && (
           <VerifyView
-            currentUser={currentUser!}
+            currentUser={currentUser}
             appState={appState}
             setAppState={setAppState}
             showToast={showToast}
@@ -306,22 +227,65 @@ function App() {
 
         {currentView === 'wallet' && (
           <WalletView
-            currentUser={currentUser!}
+            currentUser={currentUser}
             appState={appState}
             setAppState={setAppState}
             showToast={showToast}
           />
         )}
 
-        {currentView === 'admin' && (
+        {currentView === 'admin' && currentUser.role === UserRole.ADMIN && (
           <AdminPanel
             appState={appState}
             setAppState={setAppState}
-            currentUser={currentUser!}
+            currentUser={currentUser}
             showToast={showToast}
           />
         )}
       </main>
+
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-6 left-4 right-4 z-50 bg-gray-900/90 backdrop-blur-xl p-4 rounded-[48px] border border-gray-800 flex justify-between items-center">
+        <button
+          onClick={() => setCurrentView('campaigns')}
+          className={`flex-1 flex flex-col items-center py-2 transition-all ${
+            currentView === 'campaigns' ? 'text-cyan-400 scale-110' : 'text-gray-500'
+          }`}
+        >
+          <ICONS.Home className="w-6 h-6" />
+          <span className="text-xs font-bold mt-1">Missions</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentView('verify')}
+          className={`flex-1 flex flex-col items-center py-2 transition-all ${
+            currentView === 'verify' ? 'text-cyan-400 scale-110' : 'text-gray-500'
+          }`}
+        >
+          <div className="bg-cyan-500 p-4 rounded-2xl -mt-8 text-black">
+            <ICONS.Check className="w-6 h-6" />
+          </div>
+          <span className="text-xs font-bold mt-2">Verify</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentView(currentUser.role === UserRole.ADMIN ? 'admin' : 'wallet')}
+          className={`flex-1 flex flex-col items-center py-2 transition-all ${
+            currentView === (currentUser.role === UserRole.ADMIN ? 'admin' : 'wallet') 
+              ? 'text-cyan-400 scale-110' 
+              : 'text-gray-500'
+          }`}
+        >
+          {currentUser.role === UserRole.ADMIN ? (
+            <ICONS.User className="w-6 h-6" />
+          ) : (
+            <ICONS.Wallet className="w-6 h-6" />
+          )}
+          <span className="text-xs font-bold mt-1">
+            {currentUser.role === UserRole.ADMIN ? 'Admin' : 'Wallet'}
+          </span>
+        </button>
+      </nav>
 
       {/* Overlays */}
       {selectedCampaign && (
@@ -337,67 +301,6 @@ function App() {
         user={currentUser}
         onClose={() => setIsProfileOpen(false)}
       />
-
-      <UserDetailOverlay
-        isOpen={!!selectedUserDetail}
-        user={selectedUserDetail}
-        logs={appState.logs}
-        onClose={() => setSelectedUserDetail(null)}
-      />
-
-      <ReportingOverlay
-        isOpen={isReporting}
-        currentUser={currentUser}
-        onClose={() => setIsReporting(false)}
-        onSubmit={handleReportSubmit}
-        showToast={showToast}
-      />
-
-      {/* Bottom Navigation */}
-      <nav className="fixed bottom-6 left-4 right-4 z-50 glass-panel p-4 rounded-[48px] flex justify-between items-center border border-white/10 shadow-[0_20px_80px_rgba(0,0,0,0.9)] bg-[#050505]/80 backdrop-blur-3xl border-t-2 border-white/5">
-        <button
-          onClick={() => setCurrentView('campaigns')}
-          className={`flex-1 flex flex-col items-center py-3 transition-all ${
-            currentView === 'campaigns' ? 'text-cyan-400 scale-110' : 'text-slate-700 hover:text-slate-500'
-          }`}
-          aria-label="Missions"
-        >
-          <ICONS.Home className="w-7 h-7" />
-          <span className="text-[9px] font-black uppercase mt-1 italic tracking-widest leading-none">Missions</span>
-        </button>
-
-        <button
-          onClick={() => setCurrentView('verify')}
-          className={`flex-1 flex flex-col items-center py-3 transition-all ${
-            currentView === 'verify' ? 'text-cyan-400 scale-110' : 'text-slate-700 hover:text-slate-500'
-          }`}
-          aria-label="Verify"
-        >
-          <div className="bg-cyan-500 p-6 rounded-[28px] -mt-24 text-black shadow-[0_20px_60px_rgba(0,210,255,0.4)] active:scale-90 relative border-4 border-black/50">
-            <ICONS.Check className="w-8 h-8" />
-          </div>
-          <span className="text-[9px] font-black uppercase mt-3 italic tracking-widest leading-none">Verify</span>
-        </button>
-
-        <button
-          onClick={() => setCurrentView(currentUser!.role === UserRole.ADMIN ? 'admin' : 'wallet')}
-          className={`flex-1 flex flex-col items-center py-3 transition-all ${
-            currentView === (currentUser!.role === UserRole.ADMIN ? 'admin' : 'wallet')
-              ? 'text-cyan-400 scale-110'
-              : 'text-slate-700 hover:text-slate-500'
-          }`}
-          aria-label={currentUser!.role === UserRole.ADMIN ? "Admin" : "Wallet"}
-        >
-          {currentUser!.role === UserRole.ADMIN ? (
-            <ICONS.User className="w-7 h-7" />
-          ) : (
-            <ICONS.Wallet className="w-7 h-7" />
-          )}
-          <span className="text-[9px] font-black uppercase mt-1 italic tracking-widest leading-none">
-            {currentUser!.role === UserRole.ADMIN ? 'Admin' : 'Wallet'}
-          </span>
-        </button>
-      </nav>
     </div>
   );
 }
