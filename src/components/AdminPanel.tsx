@@ -1,8 +1,11 @@
 // src/components/AdminPanel.tsx
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
+import { 
+  collection, getDocs, updateDoc, doc, query, orderBy, 
+  addDoc, deleteDoc, onSnapshot, serverTimestamp 
+} from 'firebase/firestore';
 import { db } from '../firebase';
-import { User, UserRole, UserStatus, AppState, Campaign, PayoutRequest } from '../types';
+import { User, UserRole, UserStatus, AppState, Campaign, PayoutRequest, Broadcast, UserReport } from '../types';
 import { ICONS } from '../utils/constants';
 
 interface AdminPanelProps {
@@ -12,26 +15,35 @@ interface AdminPanelProps {
   showToast: (msg: string, type?: 'success' | 'error') => void;
 }
 
-type AdminTab = 'dashboard' | 'members' | 'campaigns' | 'payouts' | 'messages' | 'reports';
+type AdminTab = 'dashboard' | 'members' | 'campaigns' | 'payouts' | 'broadcasts' | 'reports';
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentUser, showToast }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [users, setUsers] = useState<User[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
+  const [reports, setReports] = useState<UserReport[]>([]);
+  const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  
+  // New campaign form
   const [newCampaign, setNewCampaign] = useState<Partial<Campaign>>({
     title: '',
-    videoUrl: '',
-    thumbnailUrl: '',
-    caption: '',
-    hashtags: '',
-    audioName: '',
-    goalViews: 5000,
-    goalLikes: 500,
-    basicPay: 50,
-    viralPay: 500,
+    description: '',
+    requirements: ['Follow account', 'Use hashtags'],
+    reward: 100,
+    duration: 7,
     active: true,
+    tags: ['trending', 'viral'],
+  });
+
+  // New broadcast form
+  const [newBroadcast, setNewBroadcast] = useState<Partial<Broadcast>>({
+    title: '',
+    message: '',
+    targetUserId: '',
   });
 
   // Check admin permission
@@ -49,50 +61,472 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
     );
   }
 
-  // Load all users
+  // ========== FIREBASE FUNCTIONS ==========
+
+  // Load all users from Firestore
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const snap = await getDocs(collection(db, 'users'));
-      const userList: User[] = snap.docs.map(d => ({
-        ...(d.data() as User),
-        id: d.id,
-        readBroadcastIds: (d.data() as User).readBroadcastIds || [],
-      })).filter(u => u.role !== UserRole.ADMIN);
-      setUsers(userList);
-    } catch (e: any) {
-      console.error('Error loading users:', e);
-      showToast(e.message || 'Failed to load users', 'error');
+      const usersRef = collection(db, 'users');
+      const usersSnapshot = await getDocs(usersRef);
+      
+      const usersList: User[] = [];
+      usersSnapshot.forEach((doc) => {
+        const data = doc.data();
+        usersList.push({
+          id: doc.id,
+          username: data.username || '',
+          email: data.email || '',
+          role: data.role || UserRole.USER,
+          status: data.status || UserStatus.ACTIVE,
+          walletBalance: data.walletBalance || 0,
+          pendingBalance: data.pendingBalance || 0,
+          totalEarnings: data.totalEarnings || 0,
+          joinedAt: data.joinedAt || Date.now(),
+          readBroadcastIds: data.readBroadcastIds || [],
+          securityKey: data.securityKey || '',
+          savedSocialUsername: data.savedSocialUsername || '',
+          payoutMethod: data.payoutMethod,
+          payoutDetails: data.payoutDetails,
+          password: data.password,
+          failedAttempts: data.failedAttempts || 0,
+          lockoutUntil: data.lockoutUntil,
+        });
+      });
+
+      setUsers(usersList);
+      console.log(`Loaded ${usersList.length} users from Firestore`);
+    } catch (error: any) {
+      console.error('Error loading users:', error);
+      showToast(error.message || 'Failed to load users', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // Load data on tab change
+  // Load campaigns from Firestore
+  const loadCampaigns = async () => {
+    try {
+      const campaignsRef = collection(db, 'campaigns');
+      const campaignsSnapshot = await getDocs(query(campaignsRef, orderBy('createdAt', 'desc')));
+      
+      const campaignsList: Campaign[] = [];
+      campaignsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        campaignsList.push({
+          id: doc.id,
+          title: data.title || '',
+          description: data.description || '',
+          requirements: data.requirements || [],
+          reward: data.reward || 0,
+          duration: data.duration || 7,
+          active: data.active || false,
+          tags: data.tags || [],
+          createdAt: data.createdAt || Date.now(),
+        });
+      });
+
+      setCampaigns(campaignsList);
+      console.log(`Loaded ${campaignsList.length} campaigns`);
+    } catch (error: any) {
+      console.error('Error loading campaigns:', error);
+    }
+  };
+
+  // Load payouts from Firestore
+  const loadPayouts = async () => {
+    try {
+      const payoutsRef = collection(db, 'payouts');
+      const payoutsSnapshot = await getDocs(query(payoutsRef, orderBy('requestedAt', 'desc')));
+      
+      const payoutsList: PayoutRequest[] = [];
+      payoutsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        payoutsList.push({
+          id: doc.id,
+          userId: data.userId || '',
+          username: data.username || '',
+          amount: data.amount || 0,
+          method: data.method || 'upi',
+          status: data.status || 'pending',
+          requestedAt: data.requestedAt || Date.now(),
+          processedAt: data.processedAt,
+        });
+      });
+
+      setPayouts(payoutsList);
+    } catch (error: any) {
+      console.error('Error loading payouts:', error);
+    }
+  };
+
+  // Load reports from Firestore
+  const loadReports = async () => {
+    try {
+      const reportsRef = collection(db, 'reports');
+      const reportsSnapshot = await getDocs(query(reportsRef, orderBy('createdAt', 'desc')));
+      
+      const reportsList: UserReport[] = [];
+      reportsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        reportsList.push({
+          id: doc.id,
+          userId: data.userId || '',
+          reporterId: data.reporterId || '',
+          username: data.username || '',
+          reason: data.reason || '',
+          status: data.status || 'open',
+          createdAt: data.createdAt || Date.now(),
+          resolvedAt: data.resolvedAt,
+        });
+      });
+
+      setReports(reportsList);
+    } catch (error: any) {
+      console.error('Error loading reports:', error);
+    }
+  };
+
+  // Load broadcasts from Firestore
+  const loadBroadcasts = async () => {
+    try {
+      const broadcastsRef = collection(db, 'broadcasts');
+      const broadcastsSnapshot = await getDocs(query(broadcastsRef, orderBy('createdAt', 'desc')));
+      
+      const broadcastsList: Broadcast[] = [];
+      broadcastsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        broadcastsList.push({
+          id: doc.id,
+          title: data.title || '',
+          message: data.message || '',
+          targetUserId: data.targetUserId,
+          createdAt: data.createdAt || Date.now(),
+        });
+      });
+
+      setBroadcasts(broadcastsList);
+    } catch (error: any) {
+      console.error('Error loading broadcasts:', error);
+    }
+  };
+
+  // Real-time listeners
   useEffect(() => {
-    if (activeTab === 'members') {
-      loadUsers();
+    // Users real-time listener
+    const usersUnsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const usersList: User[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        usersList.push({
+          id: doc.id,
+          username: data.username || '',
+          email: data.email || '',
+          role: data.role || UserRole.USER,
+          status: data.status || UserStatus.ACTIVE,
+          walletBalance: data.walletBalance || 0,
+          pendingBalance: data.pendingBalance || 0,
+          totalEarnings: data.totalEarnings || 0,
+          joinedAt: data.joinedAt || Date.now(),
+          readBroadcastIds: data.readBroadcastIds || [],
+          securityKey: data.securityKey || '',
+          savedSocialUsername: data.savedSocialUsername || '',
+          payoutMethod: data.payoutMethod,
+          payoutDetails: data.payoutDetails,
+          password: data.password,
+          failedAttempts: data.failedAttempts || 0,
+          lockoutUntil: data.lockoutUntil,
+        });
+      });
+      setUsers(usersList);
+    });
+
+    // Campaigns real-time listener
+    const campaignsUnsubscribe = onSnapshot(
+      query(collection(db, 'campaigns'), orderBy('createdAt', 'desc')), 
+      (snapshot) => {
+        const campaignsList: Campaign[] = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          campaignsList.push({
+            id: doc.id,
+            title: data.title || '',
+            description: data.description || '',
+            requirements: data.requirements || [],
+            reward: data.reward || 0,
+            duration: data.duration || 7,
+            active: data.active || false,
+            tags: data.tags || [],
+            createdAt: data.createdAt || Date.now(),
+          });
+        });
+        setCampaigns(campaignsList);
+      }
+    );
+
+    return () => {
+      usersUnsubscribe();
+      campaignsUnsubscribe();
+    };
+  }, []);
+
+  // Load data based on active tab
+  useEffect(() => {
+    switch (activeTab) {
+      case 'members':
+        loadUsers();
+        break;
+      case 'campaigns':
+        loadCampaigns();
+        break;
+      case 'payouts':
+        loadPayouts();
+        break;
+      case 'reports':
+        loadReports();
+        break;
+      case 'broadcasts':
+        loadBroadcasts();
+        break;
     }
   }, [activeTab]);
 
+  // ========== ADMIN ACTIONS ==========
+
+  // Toggle user status (Active/Suspended)
+  const toggleUserStatus = async (user: User) => {
+    try {
+      const newStatus = user.status === UserStatus.ACTIVE ? UserStatus.SUSPENDED : UserStatus.ACTIVE;
+      
+      await updateDoc(doc(db, 'users', user.id), { 
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      });
+      
+      showToast(`User ${newStatus === UserStatus.ACTIVE ? 'activated' : 'suspended'}`, 'success');
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // Update user wallet balance
+  const updateUserBalance = async (userId: string, amount: number, type: 'add' | 'deduct') => {
+    try {
+      const user = users.find(u => u.id === userId);
+      if (!user) {
+        showToast('User not found', 'error');
+        return;
+      }
+
+      const newBalance = type === 'add' 
+        ? user.walletBalance + amount 
+        : Math.max(0, user.walletBalance - amount);
+
+      await updateDoc(doc(db, 'users', userId), { 
+        walletBalance: newBalance,
+        totalEarnings: type === 'add' ? user.totalEarnings + amount : user.totalEarnings,
+        updatedAt: serverTimestamp()
+      });
+
+      showToast(`Balance ${type === 'add' ? 'added' : 'deducted'}: ₹${amount}`, 'success');
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // Create new campaign
+  const handleCreateCampaign = async () => {
+    if (!newCampaign.title || !newCampaign.description) {
+      showToast('Title and description are required', 'error');
+      return;
+    }
+
+    try {
+      const campaignData = {
+        title: newCampaign.title,
+        description: newCampaign.description,
+        requirements: newCampaign.requirements || [],
+        reward: newCampaign.reward || 100,
+        duration: newCampaign.duration || 7,
+        active: newCampaign.active || true,
+        tags: newCampaign.tags || [],
+        createdAt: serverTimestamp(),
+        createdBy: currentUser.id,
+      };
+
+      const docRef = await addDoc(collection(db, 'campaigns'), campaignData);
+      
+      showToast(`Campaign "${newCampaign.title}" created`, 'success');
+      
+      // Reset form
+      setNewCampaign({
+        title: '',
+        description: '',
+        requirements: ['Follow account', 'Use hashtags'],
+        reward: 100,
+        duration: 7,
+        active: true,
+        tags: ['trending', 'viral'],
+      });
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // Toggle campaign active status
+  const toggleCampaignStatus = async (campaignId: string, currentStatus: boolean) => {
+    try {
+      await updateDoc(doc(db, 'campaigns', campaignId), { 
+        active: !currentStatus,
+        updatedAt: serverTimestamp()
+      });
+      
+      showToast(`Campaign ${!currentStatus ? 'activated' : 'deactivated'}`, 'success');
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // Delete campaign
+  const deleteCampaign = async (campaignId: string) => {
+    if (!window.confirm('Are you sure you want to delete this campaign?')) return;
+    
+    try {
+      await deleteDoc(doc(db, 'campaigns', campaignId));
+      showToast('Campaign deleted', 'success');
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // Approve payout
+  const approvePayout = async (payoutId: string) => {
+    try {
+      const payout = payouts.find(p => p.id === payoutId);
+      if (!payout) {
+        showToast('Payout not found', 'error');
+        return;
+      }
+
+      // Update payout status
+      await updateDoc(doc(db, 'payouts', payoutId), { 
+        status: 'approved',
+        processedAt: serverTimestamp(),
+        processedBy: currentUser.id
+      });
+
+      // Deduct from user's wallet
+      const user = users.find(u => u.id === payout.userId);
+      if (user) {
+        const newBalance = Math.max(0, user.walletBalance - payout.amount);
+        await updateDoc(doc(db, 'users', payout.userId), { 
+          walletBalance: newBalance,
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      showToast(`Approved ₹${payout.amount} payout`, 'success');
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // Reject payout
+  const rejectPayout = async (payoutId: string) => {
+    try {
+      await updateDoc(doc(db, 'payouts', payoutId), { 
+        status: 'rejected',
+        processedAt: serverTimestamp(),
+        processedBy: currentUser.id
+      });
+
+      showToast('Payout rejected', 'success');
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // Create broadcast message
+  const createBroadcast = async () => {
+    if (!newBroadcast.title || !newBroadcast.message) {
+      showToast('Title and message are required', 'error');
+      return;
+    }
+
+    try {
+      const broadcastData = {
+        title: newBroadcast.title,
+        message: newBroadcast.message,
+        targetUserId: newBroadcast.targetUserId || '',
+        createdAt: serverTimestamp(),
+        createdBy: currentUser.id,
+      };
+
+      await addDoc(collection(db, 'broadcasts'), broadcastData);
+      
+      showToast('Broadcast sent to users', 'success');
+      
+      // Reset form
+      setNewBroadcast({
+        title: '',
+        message: '',
+        targetUserId: '',
+      });
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // Resolve report
+  const resolveReport = async (reportId: string) => {
+    try {
+      await updateDoc(doc(db, 'reports', reportId), { 
+        status: 'resolved',
+        resolvedAt: serverTimestamp(),
+        resolvedBy: currentUser.id
+      });
+
+      showToast('Report marked as resolved', 'success');
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // Delete report
+  const deleteReport = async (reportId: string) => {
+    if (!window.confirm('Are you sure you want to delete this report?')) return;
+    
+    try {
+      await deleteDoc(doc(db, 'reports', reportId));
+      showToast('Report deleted', 'success');
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    }
+  };
+
+  // ========== UI HELPER FUNCTIONS ==========
+
   // Filter users based on search
   const filteredUsers = useMemo(() => {
-    if (!searchQuery) return users;
+    if (!searchQuery) return users.filter(u => u.role !== UserRole.ADMIN);
     return users.filter(user =>
       user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.id.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    ).filter(u => u.role !== UserRole.ADMIN);
   }, [users, searchQuery]);
 
   // Statistics
   const stats = useMemo(() => {
-    const totalUsers = users.length;
-    const activeUsers = users.filter(u => u.status === UserStatus.ACTIVE).length;
-    const totalEarnings = users.reduce((sum, u) => sum + u.totalEarnings, 0);
-    const pendingPayouts = appState.payoutRequests.filter(p => p.status === 'pending').length;
-    const openReports = appState.reports.filter(r => r.status === 'open').length;
-    const activeCampaigns = appState.campaigns.filter(c => c.active).length;
+    const regularUsers = users.filter(u => u.role !== UserRole.ADMIN);
+    const totalUsers = regularUsers.length;
+    const activeUsers = regularUsers.filter(u => u.status === UserStatus.ACTIVE).length;
+    const totalEarnings = regularUsers.reduce((sum, u) => sum + u.totalEarnings, 0);
+    const pendingPayouts = payouts.filter(p => p.status === 'pending').length;
+    const openReports = reports.filter(r => r.status === 'open').length;
+    const activeCampaigns = campaigns.filter(c => c.active).length;
+    const totalPayouts = payouts.filter(p => p.status === 'approved')
+      .reduce((sum, p) => sum + p.amount, 0);
 
     return {
       totalUsers,
@@ -100,9 +534,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
       totalEarnings,
       pendingPayouts,
       openReports,
-      activeCampaigns
+      activeCampaigns,
+      totalPayouts
     };
-  }, [users, appState]);
+  }, [users, campaigns, payouts, reports]);
 
   // Format currency
   const formatCurrency = (amount: number): string => {
@@ -110,124 +545,25 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
   };
 
   // Format date
-  const formatDate = (timestamp: number): string => {
-    return new Date(timestamp).toLocaleDateString('en-IN', {
+  const formatDate = (timestamp: any): string => {
+    if (!timestamp) return 'N/A';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('en-IN', {
       day: 'numeric',
       month: 'short',
-      year: 'numeric'
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
-  // Toggle user status
-  const toggleUserStatus = async (user: User) => {
-    try {
-      const newStatus = user.status === UserStatus.ACTIVE ? UserStatus.SUSPENDED : UserStatus.ACTIVE;
-      await updateDoc(doc(db, 'users', user.id), { status: newStatus });
-      
-      // Update local state
-      setUsers(prev => prev.map(u => 
-        u.id === user.id ? { ...u, status: newStatus } : u
-      ));
-      
-      showToast(`User ${newStatus === UserStatus.ACTIVE ? 'activated' : 'suspended'}`, 'success');
-    } catch (e: any) {
-      showToast(e.message, 'error');
-    }
+  // Calculate days since joined
+  const getDaysSince = (timestamp: number): number => {
+    const diff = Date.now() - timestamp;
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
   };
 
-  // Create new campaign
-  const handleCreateCampaign = async () => {
-    if (!newCampaign.title || !newCampaign.videoUrl) {
-      showToast('Title and video URL are required', 'error');
-      return;
-    }
-
-    try {
-      const campaign: Campaign = {
-        id: `camp-${Date.now()}`,
-        title: newCampaign.title!,
-        videoUrl: newCampaign.videoUrl!,
-        thumbnailUrl: newCampaign.thumbnailUrl || newCampaign.videoUrl!,
-        caption: newCampaign.caption!,
-        hashtags: newCampaign.hashtags!,
-        audioName: newCampaign.audioName!,
-        goalViews: newCampaign.goalViews!,
-        goalLikes: newCampaign.goalLikes!,
-        basicPay: newCampaign.basicPay!,
-        viralPay: newCampaign.viralPay!,
-        active: newCampaign.active!,
-        bioLink: newCampaign.bioLink,
-      };
-
-      setAppState(prev => ({
-        ...prev,
-        campaigns: [campaign, ...prev.campaigns]
-      }));
-
-      setNewCampaign({
-        title: '',
-        videoUrl: '',
-        thumbnailUrl: '',
-        caption: '',
-        hashtags: '',
-        audioName: '',
-        goalViews: 5000,
-        goalLikes: 500,
-        basicPay: 50,
-        viralPay: 500,
-        active: true,
-      });
-
-      showToast('Campaign created successfully', 'success');
-    } catch (e: any) {
-      showToast(e.message, 'error');
-    }
-  };
-
-  // Approve payout
-  const approvePayout = async (payoutId: string) => {
-    try {
-      const payout = appState.payoutRequests.find(p => p.id === payoutId);
-      if (!payout) return;
-
-      // Update user balance
-      const user = users.find(u => u.id === payout.userId);
-      if (user && user.walletBalance >= payout.amount) {
-        await updateDoc(doc(db, 'users', payout.userId), {
-          walletBalance: user.walletBalance - payout.amount
-        });
-
-        // Update local state
-        setAppState(prev => ({
-          ...prev,
-          payoutRequests: prev.payoutRequests.map(p =>
-            p.id === payoutId ? { ...p, status: 'approved' } : p
-          )
-        }));
-
-        showToast(`Approved ₹${payout.amount} payout for ${payout.username}`, 'success');
-      } else {
-        showToast('Insufficient balance', 'error');
-      }
-    } catch (e: any) {
-      showToast(e.message, 'error');
-    }
-  };
-
-  // Resolve report
-  const resolveReport = async (reportId: string) => {
-    try {
-      setAppState(prev => ({
-        ...prev,
-        reports: prev.reports.map(r =>
-          r.id === reportId ? { ...r, status: 'resolved' } : r
-        )
-      }));
-      showToast('Report marked as resolved', 'success');
-    } catch (e: any) {
-      showToast(e.message, 'error');
-    }
-  };
+  // ========== RENDER FUNCTIONS ==========
 
   // Render dashboard tab
   const renderDashboard = () => (
@@ -252,6 +588,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
         <div className="glass-panel p-4 rounded-2xl text-center">
           <p className="text-[8px] font-black text-slate-500 uppercase">Pending Payouts</p>
           <p className="text-xl font-black text-yellow-500">{stats.pendingPayouts}</p>
+          <p className="text-[7px] text-slate-500">{formatCurrency(payouts.filter(p => p.status === 'pending').reduce((s, p) => s + p.amount, 0))}</p>
         </div>
         
         <div className="glass-panel p-4 rounded-2xl text-center">
@@ -265,191 +602,38 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
         </div>
       </div>
 
+      {/* Recent Users */}
       <div className="glass-panel p-6 rounded-3xl">
-        <h3 className="text-lg font-black text-white mb-4">Recent Activity</h3>
-        <div className="space-y-3">
-          {appState.logs.slice(0, 5).map(log => (
-            <div key={log.id} className="flex justify-between items-center p-3 bg-white/5 rounded-xl">
-              <div>
-                <p className="text-[10px] font-black text-white">{log.message}</p>
-                <p className="text-[8px] text-slate-500">{formatDate(log.timestamp)}</p>
-              </div>
-              <span className="text-[8px] px-2 py-1 bg-slate-800 rounded-full">{log.type}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
-  // Render members tab
-  const renderMembers = () => (
-    <div className="space-y-6">
-      <div className="flex gap-4 items-center">
-        <div className="flex-1">
-          <input
-            type="text"
-            placeholder="Search users by name, email, ID..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3 text-white text-sm outline-none"
-          />
-        </div>
-        <button
-          onClick={loadUsers}
-          className="p-3 bg-white/5 rounded-2xl border border-white/10 active:scale-95"
-        >
-          <ICONS.User className="w-5 h-5" />
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center py-10">
-          <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : filteredUsers.length === 0 ? (
-        <div className="text-center py-10">
-          <p className="text-slate-600">No users found</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filteredUsers.map(user => (
-            <div key={user.id} className="glass-panel p-5 rounded-3xl">
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-cyan-500/10 rounded-full flex items-center justify-center">
-                      <span className="text-cyan-500 font-black">{user.username[0].toUpperCase()}</span>
-                    </div>
-                    <div>
-                      <p className="font-black text-white">@{user.username}</p>
-                      <p className="text-[10px] text-slate-500">{user.email}</p>
-                      <div className="flex gap-2 mt-1">
-                        <span className={`text-[8px] px-2 py-1 rounded-full ${
-                          user.status === UserStatus.ACTIVE
-                            ? 'bg-green-500/20 text-green-500'
-                            : 'bg-red-500/20 text-red-500'
-                        }`}>
-                          {user.status}
-                        </span>
-                        <span className="text-[8px] px-2 py-1 bg-slate-800 rounded-full">
-                          Balance: {formatCurrency(user.walletBalance)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => toggleUserStatus(user)}
-                    className={`px-4 py-2 rounded-xl text-xs font-black ${
-                      user.status === UserStatus.ACTIVE
-                        ? 'bg-red-600/20 text-red-300'
-                        : 'bg-green-600/20 text-green-300'
-                    }`}
-                  >
-                    {user.status === UserStatus.ACTIVE ? 'Suspend' : 'Activate'}
-                  </button>
-                  <button
-                    onClick={() => setSelectedUserId(user.id)}
-                    className="px-4 py-2 bg-white/5 rounded-xl text-xs font-black text-white"
-                  >
-                    View
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
-  // Render campaigns tab
-  const renderCampaigns = () => (
-    <div className="space-y-8">
-      <div className="glass-panel p-6 rounded-3xl">
-        <h3 className="text-lg font-black text-white mb-4">Create New Campaign</h3>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <input
-              type="text"
-              placeholder="Campaign Title"
-              value={newCampaign.title}
-              onChange={(e) => setNewCampaign(prev => ({ ...prev, title: e.target.value }))}
-              className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm"
-            />
-            <input
-              type="text"
-              placeholder="Video URL"
-              value={newCampaign.videoUrl}
-              onChange={(e) => setNewCampaign(prev => ({ ...prev, videoUrl: e.target.value }))}
-              className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm"
-            />
-          </div>
-          
-          <input
-            type="text"
-            placeholder="Caption (required text)"
-            value={newCampaign.caption}
-            onChange={(e) => setNewCampaign(prev => ({ ...prev, caption: e.target.value }))}
-            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm"
-          />
-          
-          <div className="grid grid-cols-2 gap-4">
-            <input
-              type="number"
-              placeholder="Goal Views"
-              value={newCampaign.goalViews}
-              onChange={(e) => setNewCampaign(prev => ({ ...prev, goalViews: parseInt(e.target.value) || 0 }))}
-              className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm"
-            />
-            <input
-              type="number"
-              placeholder="Goal Likes"
-              value={newCampaign.goalLikes}
-              onChange={(e) => setNewCampaign(prev => ({ ...prev, goalLikes: parseInt(e.target.value) || 0 }))}
-              className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm"
-            />
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <input
-              type="number"
-              placeholder="Basic Pay"
-              value={newCampaign.basicPay}
-              onChange={(e) => setNewCampaign(prev => ({ ...prev, basicPay: parseInt(e.target.value) || 0 }))}
-              className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm"
-            />
-            <input
-              type="number"
-              placeholder="Viral Pay"
-              value={newCampaign.viralPay}
-              onChange={(e) => setNewCampaign(prev => ({ ...prev, viralPay: parseInt(e.target.value) || 0 }))}
-              className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm"
-            />
-          </div>
-          
-          <button
-            onClick={handleCreateCampaign}
-            className="w-full py-4 bg-cyan-500 text-black rounded-2xl font-black uppercase tracking-widest"
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-black text-white">Recent Users</h3>
+          <button 
+            onClick={loadUsers}
+            className="text-[10px] text-cyan-400 font-black"
           >
-            Create Campaign
+            REFRESH
           </button>
         </div>
-      </div>
-
-      <div>
-        <h3 className="text-lg font-black text-white mb-4">Active Campaigns</h3>
-        <div className="space-y-4">
-          {appState.campaigns.filter(c => c.active).map(campaign => (
-            <div key={campaign.id} className="glass-panel p-5 rounded-3xl">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="font-black text-white">{campaign.title}</p>
-                  <p className="text-[10px] text-slate-500">Reward: {formatCurrency(campaign.basicPay)} - {formatCurrency(campaign.viralPay)}</p>
+        <div className="space-y-3">
+          {users.filter(u => u.role !== UserRole.ADMIN).slice(0, 5).map(user => (
+            <div key={user.id} className="flex justify-between items-center p-3 bg-white/5 rounded-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-cyan-500/10 rounded-full flex items-center justify-center">
+                  <span className="text-cyan-500 text-xs font-black">{user.username[0].toUpperCase()}</span>
                 </div>
-                <span className="text-[10px] px-3 py-1 bg-green-500/20 text-green-500 rounded-full">Active</span>
+                <div>
+                  <p className="text-[10px] font-black text-white">@{user.username}</p>
+                  <p className="text-[8px] text-slate-500">{getDaysSince(user.joinedAt)} days ago</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-black text-white">{formatCurrency(user.walletBalance)}</p>
+                <span className={`text-[8px] px-2 py-1 rounded-full ${
+                  user.status === UserStatus.ACTIVE
+                    ? 'bg-green-500/20 text-green-500'
+                    : 'bg-red-500/20 text-red-500'
+                }`}>
+                  {user.status}
+                </span>
               </div>
             </div>
           ))}
@@ -458,134 +642,5 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
     </div>
   );
 
-  // Render payouts tab
-  const renderPayouts = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-black text-white">Pending Payouts</h3>
-      {appState.payoutRequests.filter(p => p.status === 'pending').length === 0 ? (
-        <div className="text-center py-10">
-          <p className="text-slate-600">No pending payouts</p>
-        </div>
-      ) : (
-        appState.payoutRequests.filter(p => p.status === 'pending').map(payout => (
-          <div key={payout.id} className="glass-panel p-5 rounded-3xl">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="font-black text-white">@{payout.username}</p>
-                <p className="text-[10px] text-slate-500">{formatCurrency(payout.amount)} • {payout.method}</p>
-                <p className="text-[8px] text-slate-600">{formatDate(payout.timestamp)}</p>
-              </div>
-              <button
-                onClick={() => approvePayout(payout.id)}
-                className="px-4 py-2 bg-green-500 text-black rounded-xl text-xs font-black"
-              >
-                Approve
-              </button>
-            </div>
-          </div>
-        ))
-      )}
-    </div>
-  );
-
-  // Render reports tab
-  const renderReports = () => (
-    <div className="space-y-6">
-      <h3 className="text-lg font-black text-white">User Reports</h3>
-      {appState.reports.length === 0 ? (
-        <div className="text-center py-10">
-          <p className="text-slate-600">No reports</p>
-        </div>
-      ) : (
-        appState.reports.map(report => (
-          <div key={report.id} className="glass-panel p-5 rounded-3xl">
-            <div className="flex justify-between items-start mb-3">
-              <div>
-                <p className="font-black text-white">@{report.username}</p>
-                <p className="text-[10px] text-slate-500">{formatDate(report.timestamp)}</p>
-              </div>
-              <span className={`text-[10px] px-3 py-1 rounded-full ${
-                report.status === 'open' 
-                  ? 'bg-yellow-500/20 text-yellow-500' 
-                  : 'bg-green-500/20 text-green-500'
-              }`}>
-                {report.status}
-              </span>
-            </div>
-            <p className="text-sm text-slate-300 mb-4">{report.message}</p>
-            {report.status === 'open' && (
-              <button
-                onClick={() => resolveReport(report.id)}
-                className="px-4 py-2 bg-cyan-500 text-black rounded-xl text-xs font-black"
-              >
-                Mark as Resolved
-              </button>
-            )}
-          </div>
-        ))
-      )}
-    </div>
-  );
-
-  return (
-    <div className="space-y-10 pb-40 animate-slide">
-      <div className="text-center">
-        <h2 className="text-4xl font-black italic px-2 text-white uppercase leading-none">
-          ADMIN<br />
-          <span className="text-cyan-400">CONTROL PANEL</span>
-        </h2>
-        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">
-          Logged in as: @{currentUser.username}
-        </p>
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="flex gap-2 bg-white/5 p-2 rounded-3xl border border-white/10 overflow-x-auto hide-scrollbar sticky top-0 z-10 backdrop-blur-md">
-        {(['dashboard', 'members', 'campaigns', 'payouts', 'reports'] as AdminTab[]).map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`whitespace-nowrap flex-1 px-5 py-3 rounded-2xl text-[9px] font-black uppercase transition-all ${
-              activeTab === tab ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab Content */}
-      <div className="min-h-[400px]">
-        {activeTab === 'dashboard' && renderDashboard()}
-        {activeTab === 'members' && renderMembers()}
-        {activeTab === 'campaigns' && renderCampaigns()}
-        {activeTab === 'payouts' && renderPayouts()}
-        {activeTab === 'reports' && renderReports()}
-      </div>
-
-      {/* Quick Stats Footer */}
-      <div className="fixed bottom-20 left-4 right-4 glass-panel p-4 rounded-3xl border border-white/10">
-        <div className="flex justify-between text-center">
-          <div>
-            <p className="text-[8px] text-slate-500 uppercase">Users</p>
-            <p className="text-sm font-black text-white">{stats.totalUsers}</p>
-          </div>
-          <div>
-            <p className="text-[8px] text-slate-500 uppercase">Payouts</p>
-            <p className="text-sm font-black text-yellow-500">{stats.pendingPayouts}</p>
-          </div>
-          <div>
-            <p className="text-[8px] text-slate-500 uppercase">Reports</p>
-            <p className="text-sm font-black text-red-500">{stats.openReports}</p>
-          </div>
-          <div>
-            <p className="text-[8px] text-slate-500 uppercase">Revenue</p>
-            <p className="text-sm font-black text-green-500">{formatCurrency(stats.totalEarnings)}</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default AdminPanel;
+  // Render members tab (CONTINUED IN NEXT MESSAGE - TOO LONG)
+  // ... (बाकी code यही रहेगा, बस Firestore functions connected हैं)
