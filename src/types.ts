@@ -45,11 +45,11 @@ export interface User {
   totalEarnings: number;
   joinedAt: number;
   readBroadcastIds: string[];
-  securityKey?: string;           // Recovery key
+  securityKey: string;            // Required recovery key
   failedAttempts?: number;        // Login attempts tracking
   lockoutUntil?: number;          // Timestamp for lockout end
   savedSocialUsername?: string;   // e.g., "instagram.com/@username"
-  payoutMethod?: 'UPI' | 'BANK' | 'USDT';
+  payoutMethod?: 'UPI' | 'BANK' | 'USDT' | string;
   payoutDetails?: string;         // UPI ID, Bank Account, Wallet Address
 }
 
@@ -68,7 +68,8 @@ export interface Campaign {
   basicPay: number;
   viralPay: number;
   active: boolean;
-  bioLink?: string;
+  bioLink: string;
+  createdAt?: number;             // Added from second block
 }
 
 // ────────────────────────────────────────────────
@@ -86,7 +87,9 @@ export interface Submission {
   rewardAmount: number;
   isViralBonus?: boolean;
   rejectionReason?: string;
-  externalLink?: string;
+  externalLink: string;
+  approvedAt?: number;            // Added from second block
+  rejectedAt?: number;            // Added from second block
 }
 
 // ────────────────────────────────────────────────
@@ -99,11 +102,13 @@ export interface PayoutRequest {
   method: string;
   status: PayoutStatus;
   timestamp: number;
+  processedAt?: number;           // Added from second block
+  processedBy?: string;           // Added from second block
 }
 
 // ────────────────────────────────────────────────
-// Broadcast Message
-export interface BroadcastMessage {
+// Broadcast Message (Renamed from BroadcastMessage to match second block)
+export interface Broadcast {
   id: string;
   content: string;
   senderId: string;
@@ -120,6 +125,7 @@ export interface UserReport {
   message: string;
   status: 'open' | 'resolved';
   timestamp: number;
+  resolvedAt?: number;            // Added from second block
 }
 
 // ────────────────────────────────────────────────
@@ -143,17 +149,21 @@ export interface Cashflow {
 }
 
 // ────────────────────────────────────────────────
+// App Config
+export interface AppConfig {
+  minWithdrawal: number;
+}
+
+// ────────────────────────────────────────────────
 // Main App State
 export interface AppState {
   users: User[];
   campaigns: Campaign[];
   submissions: Submission[];
   payoutRequests: PayoutRequest[];
-  broadcasts: BroadcastMessage[];
+  broadcasts: Broadcast[];        // Updated type name
   reports: UserReport[];
   cashflow: Cashflow;
   logs: AppLog[];
-  config: {
-    minWithdrawal: number;
-  };
+  config: AppConfig;              // Updated to use AppConfig interface
 }
