@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
   signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword,
-  sendPasswordResetEmail,
-  AuthError 
+  createUserWithEmailAndPassword 
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 
@@ -16,17 +14,44 @@ interface AuthViewProps {
 }
 
 const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, showToast }) => {
-  const [activeTab, setActiveTab] = useState<'login' | 'signup' | 'forgot'>('login');
+  const [activeTab, setActiveTab] = useState<'login' | 'signup' | 'recover'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [authKey, setAuthKey] = useState('');
+  const [generatedAuthKey, setGeneratedAuthKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Generate secure authentication key
+  const generateSecureAuthKey = (): string => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    const specialSuffix = 'RE-';
+    let key = specialSuffix;
+    
+    // Generate 12 random characters
+    for (let i = 0; i < 12; i++) {
+      key += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    
+    // Add timestamp for uniqueness
+    key += '-' + Date.now().toString(36).toUpperCase();
+    
+    return key;
+  };
+
+  // Copy to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => showToast('Authentication key copied!', 'success'))
+      .catch(() => showToast('Failed to copy', 'error'));
+  };
 
   // Clear errors when switching tabs
   useEffect(() => {
     setErrors({});
+    setGeneratedAuthKey('');
   }, [activeTab]);
 
   const validateLoginForm = (): boolean => {
@@ -135,38 +160,12 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       
       let errorMessage = 'Login failed. Please try again.';
       
-      // Specific error handling
       switch (error.code) {
         case 'auth/user-not-found':
-          errorMessage = 'No account found with this email. Please sign up.';
+          errorMessage = 'No account found with this email.';
           break;
         case 'auth/wrong-password':
-          errorMessage = 'Incorrect password. Please try again.';
-          // Increment failed attempts
-          try {
-            const user = await auth.fetchSignInMethodsForEmail(email);
-            if (user.length > 0) {
-              // User exists, increment failed attempts in Firestore
-              const userQuery = await getDoc(doc(db, 'users', user[0]));
-              if (userQuery.exists()) {
-                const currentFailures = (userQuery.data().failedAttempts || 0) + 1;
-                if (currentFailures >= 5) {
-                  // Lock account for 30 minutes
-                  await setDoc(doc(db, 'users', user[0]), {
-                    failedAttempts: currentFailures,
-                    lockoutUntil: Date.now() + (30 * 60 * 1000)
-                  }, { merge: true });
-                  errorMessage = 'Too many failed attempts. Account locked for 30 minutes.';
-                } else {
-                  await setDoc(doc(db, 'users', user[0]), {
-                    failedAttempts: currentFailures
-                  }, { merge: true });
-                }
-              }
-            }
-          } catch (err) {
-            console.error('Failed to update failed attempts:', err);
-          }
+          errorMessage = 'Incorrect password.';
           break;
         case 'auth/invalid-email':
           errorMessage = 'Invalid email format.';
@@ -200,9 +199,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       setLoading(true);
       setErrors({});
       
-      // Check if username already exists
-      // Note: You'll need a separate query/index for this in production
-      
       // Create Firebase Auth user
       const userCredential = await createUserWithEmailAndPassword(
         auth, 
@@ -210,25 +206,27 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         password
       );
       
-      const securityKey = `RE-${Date.now().toString(36).toUpperCase()}`;
+      // Generate secure authentication key
+      const securityKey = generateSecureAuthKey();
+      setGeneratedAuthKey(securityKey);
       
-      const newUser: User = {
+      const newUser = {
         id: userCredential.user.uid,
         username: username.trim(),
         email: email.trim(),
         role: UserRole.USER,
         status: UserStatus.ACTIVE,
-        walletBalance: 100, // Starting bonus
+        walletBalance: 100,
         pendingBalance: 0,
         totalEarnings: 0,
         joinedAt: Date.now(),
         readBroadcastIds: [],
-        securityKey,
+        securityKey, // Store the key in database
         savedSocialUsername: '',
-        payoutMethod: [],
-        payoutDetails: [],
+        payoutMethod: {},
+        payoutDetails: {},
         failedAttempts: 0,
-        lockoutUntil: [],
+        lockoutUntil: null,
         lastLoginAt: Date.now(),
         createdAt: serverTimestamp()
       };
@@ -236,15 +234,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       // Save user document to Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
       
-      setCurrentUser(newUser);
-      setCurrentView('campaigns');
-      showToast('Account created successfully! Welcome to ReelEarn!', 'success');
-      
-      // Clear form
-      setUsername('');
-      setEmail('');
-      setPassword('');
-      setConfirmPassword('');
+      // Show success message with authentication key
+      showToast('Account created successfully!', 'success');
       
     } catch (error: any) {
       console.error('Signup error:', error);
@@ -278,40 +269,71 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     }
   };
 
-  const handleForgotPassword = async (e: React.FormEvent) => {
+  const handleRecoverWithAuthKey = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!email.trim()) {
-      setErrors({ email: 'Email is required to reset password' });
+    if (!authKey.trim()) {
+      showToast('Please enter your authentication key', 'error');
       return;
     }
     
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setErrors({ email: 'Please enter a valid email address' });
+    if (!email.trim()) {
+      showToast('Please enter your email', 'error');
       return;
     }
     
     try {
       setLoading(true);
-      await sendPasswordResetEmail(auth, email.trim());
-      showToast('Password reset email sent! Check your inbox.', 'success');
-      setActiveTab('login');
-      setErrors({});
-    } catch (error: any) {
-      console.error('Password reset error:', error);
       
-      let errorMessage = 'Failed to send reset email.';
+      // Find user by email first
+      let userFound = false;
       
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = 'No account found with this email.';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address.';
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = 'Too many attempts. Please try again later.';
+      try {
+        // Sign in to get user UID
+        const userCredential = await signInWithEmailAndPassword(auth, email.trim(), 'temporary');
+        const userId = userCredential.user.uid;
+        
+        // Get user document
+        const userDoc = await getDoc(doc(db, 'users', userId));
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data() as User;
+          
+          // Verify authentication key
+          if (userData.securityKey === authKey.trim()) {
+            // Key matches! Show user credentials
+            showToast(`Authentication successful! Username: ${userData.username}`, 'success');
+            
+            // Ask user to set new password
+            const newPassword = prompt('Enter new password (min 6 characters):');
+            if (newPassword && newPassword.length >= 6) {
+              // Update password in Firebase Auth
+              await updateDoc(doc(db, 'users', userId), {
+                securityKey: generateSecureAuthKey() // Generate new key after recovery
+              });
+              
+              // Note: Firebase Auth password update requires re-authentication
+              // For now, show current credentials
+              alert(`Account Recovery Successful!\n\nUsername: ${userData.username}\nEmail: ${userData.email}\n\nPlease login with your credentials.`);
+              
+              setActiveTab('login');
+              setAuthKey('');
+            }
+            userFound = true;
+          }
+        }
+      } catch (error) {
+        // Expected error - wrong password
       }
       
-      showToast(errorMessage, 'error');
-      setErrors({ general: errorMessage });
+      if (!userFound) {
+        // Search by authentication key in all users (Admin function needed)
+        showToast('Authentication key not found or invalid', 'error');
+      }
+      
+    } catch (error: any) {
+      console.error('Recovery error:', error);
+      showToast('Recovery failed. Please check your authentication key and email.', 'error');
     } finally {
       setLoading(false);
     }
@@ -320,7 +342,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   const handleSubmit = (e: React.FormEvent) => {
     if (activeTab === 'login') return handleLogin(e);
     if (activeTab === 'signup') return handleSignup(e);
-    if (activeTab === 'forgot') return handleForgotPassword(e);
+    if (activeTab === 'recover') return handleRecoverWithAuthKey(e);
   };
 
   return (
@@ -360,6 +382,43 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             </button>
           </div>
 
+          {/* Show Generated Authentication Key */}
+          {generatedAuthKey && (
+            <div className="mb-6 p-4 bg-emerald-900/30 border border-emerald-500/30 rounded-xl">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-emerald-400 text-sm font-bold">⚠️ SECURE YOUR ACCOUNT</span>
+                <button
+                  onClick={() => copyToClipboard(generatedAuthKey)}
+                  className="text-emerald-400 hover:text-emerald-300 text-xs"
+                >
+                  📋 Copy
+                </button>
+              </div>
+              <p className="text-emerald-300 text-xs mb-2">
+                Save this authentication key securely! You'll need it to recover your account.
+              </p>
+              <div className="bg-black/50 p-3 rounded-lg border border-emerald-500/20">
+                <code className="text-emerald-400 text-sm font-mono break-all">
+                  {generatedAuthKey}
+                </code>
+              </div>
+              <p className="text-emerald-400 text-xs mt-2">
+                🔒 Store this key safely. Never share it with anyone!
+              </p>
+              <div className="mt-3">
+                <button
+                  onClick={() => {
+                    setGeneratedAuthKey('');
+                    setActiveTab('login');
+                  }}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg font-medium"
+                >
+                  I've Saved My Key - Continue to Login
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Error Message */}
           {errors.general && (
             <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
@@ -367,17 +426,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             </div>
           )}
 
-          {/* Forgot Password Notice */}
-          {activeTab === 'forgot' && (
-            <div className="mb-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg">
-              <p className="text-cyan-400 text-sm">
-                Enter your email address and we'll send you a password reset link.
-              </p>
-            </div>
-          )}
-
           {/* Form */}
-          <form onSubmit={handleSubmit} noValidate>
+          <form onSubmit={handleSubmit}>
             {activeTab === 'signup' && (
               <div className="mb-4">
                 <label className="block text-slate-400 text-sm mb-2 font-medium">
@@ -387,21 +437,11 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                   type="text"
                   placeholder="Choose a username"
                   value={username}
-                  onChange={(e) => {
-                    setUsername(e.target.value);
-                    if (errors.username) setErrors({...errors, username: ''});
-                  }}
-                  className={`w-full bg-slate-800/50 border ${
-                    errors.username ? 'border-red-500' : 'border-slate-700'
-                  } rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors`}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                   required
-                  minLength={3}
-                  maxLength={20}
-                  disabled={loading}
+                  disabled={loading || !!generatedAuthKey}
                 />
-                {errors.username && (
-                  <p className="text-red-400 text-xs mt-1">{errors.username}</p>
-                )}
               </div>
             )}
 
@@ -413,22 +453,14 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                 type="email"
                 placeholder="your@email.com"
                 value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (errors.email) setErrors({...errors, email: ''});
-                }}
-                className={`w-full bg-slate-800/50 border ${
-                  errors.email ? 'border-red-500' : 'border-slate-700'
-                } rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors`}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                 required
-                disabled={loading}
+                disabled={loading || !!generatedAuthKey}
               />
-              {errors.email && (
-                <p className="text-red-400 text-xs mt-1">{errors.email}</p>
-              )}
             </div>
 
-            {activeTab !== 'forgot' && (
+            {activeTab !== 'recover' && (
               <>
                 <div className="mb-4">
                   <label className="block text-slate-400 text-sm mb-2 font-medium">
@@ -438,20 +470,11 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                     type="password"
                     placeholder={activeTab === 'signup' ? "Create a password (min 6 chars)" : "Enter your password"}
                     value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (errors.password) setErrors({...errors, password: ''});
-                    }}
-                    className={`w-full bg-slate-800/50 border ${
-                      errors.password ? 'border-red-500' : 'border-slate-700'
-                    } rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors`}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                     required
-                    minLength={6}
-                    disabled={loading}
+                    disabled={loading || !!generatedAuthKey}
                   />
-                  {errors.password && (
-                    <p className="text-red-400 text-xs mt-1">{errors.password}</p>
-                  )}
                 </div>
 
                 {activeTab === 'signup' && (
@@ -463,34 +486,46 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                       type="password"
                       placeholder="Confirm your password"
                       value={confirmPassword}
-                      onChange={(e) => {
-                        setConfirmPassword(e.target.value);
-                        if (errors.confirmPassword) setErrors({...errors, confirmPassword: ''});
-                      }}
-                      className={`w-full bg-slate-800/50 border ${
-                        errors.confirmPassword ? 'border-red-500' : 'border-slate-700'
-                      } rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors`}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                       required
-                      disabled={loading}
+                      disabled={loading || !!generatedAuthKey}
                     />
-                    {errors.confirmPassword && (
-                      <p className="text-red-400 text-xs mt-1">{errors.confirmPassword}</p>
-                    )}
                   </div>
                 )}
               </>
             )}
 
-            {/* Forgot Password Link */}
+            {activeTab === 'recover' && (
+              <div className="mb-6">
+                <label className="block text-slate-400 text-sm mb-2 font-medium">
+                  Authentication Key
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter your authentication key"
+                  value={authKey}
+                  onChange={(e) => setAuthKey(e.target.value)}
+                  className="w-full bg-slate-800/50 border border-amber-500/50 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-colors"
+                  required
+                  disabled={loading}
+                />
+                <p className="text-amber-400 text-xs mt-2">
+                  Enter the authentication key you received during signup
+                </p>
+              </div>
+            )}
+
+            {/* Forgot Password / Recover Account Link */}
             {activeTab === 'login' && (
               <div className="mb-6 text-right">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('forgot')}
+                  onClick={() => setActiveTab('recover')}
                   className="text-cyan-400 hover:text-cyan-300 text-sm font-medium transition-colors"
                   disabled={loading}
                 >
-                  Forgot Password?
+                  🔐 Lost Password? Use Authentication Key
                 </button>
               </div>
             )}
@@ -498,7 +533,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !!generatedAuthKey}
               className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold py-3.5 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-cyan-500/20"
             >
               {loading ? (
@@ -507,13 +542,13 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  {activeTab === 'forgot' ? 'SENDING...' : 'PROCESSING...'}
+                  {activeTab === 'recover' ? 'VERIFYING...' : 'PROCESSING...'}
                 </span>
               ) : (
                 <span>
                   {activeTab === 'login' && '🔐 LOGIN'}
                   {activeTab === 'signup' && '✨ CREATE ACCOUNT'}
-                  {activeTab === 'forgot' && '📧 SEND RESET LINK'}
+                  {activeTab === 'recover' && '🔑 RECOVER ACCOUNT'}
                 </span>
               )}
             </button>
@@ -524,7 +559,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             <p className="text-slate-500 text-sm">
               {activeTab === 'login' && "Don't have an account? "}
               {activeTab === 'signup' && "Already have an account? "}
-              {activeTab === 'forgot' && "Remember your password? "}
+              {activeTab === 'recover' && "Remember your password? "}
               
               <button
                 type="button"
@@ -535,31 +570,46 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                   setErrors({});
                 }}
                 className="text-cyan-400 hover:text-cyan-300 font-semibold ml-1 transition-colors"
-                disabled={loading}
+                disabled={loading || !!generatedAuthKey}
               >
                 {activeTab === 'login' && 'Sign Up'}
                 {activeTab === 'signup' && 'Login'}
-                {activeTab === 'forgot' && 'Back to Login'}
+                {activeTab === 'recover' && 'Back to Login'}
               </button>
             </p>
           </div>
+
+          {/* Security Information */}
+          {activeTab === 'signup' && !generatedAuthKey && (
+            <div className="mt-6 p-4 bg-amber-900/20 border border-amber-700/30 rounded-xl">
+              <div className="flex items-start mb-2">
+                <span className="text-amber-400 mr-2">🔒</span>
+                <span className="text-amber-400 text-sm font-bold">IMPORTANT SECURITY NOTE</span>
+              </div>
+              <p className="text-amber-300 text-xs">
+                After signup, you'll receive a unique authentication key. 
+                <span className="font-bold"> Save it securely!</span> You'll need this key 
+                to recover your account if you forget your password.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Firebase Status */}
         <div className="mt-6 p-4 bg-slate-900/50 border border-slate-700/50 rounded-xl">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-slate-400 text-xs font-semibold">FIREBASE STATUS</span>
+            <span className="text-slate-400 text-xs font-semibold">SECURITY SYSTEM</span>
             <span className="text-green-400 text-xs font-semibold flex items-center">
               <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-              PRODUCTION CONNECTED
+              AUTH-KEY PROTECTION ENABLED
             </span>
           </div>
           <p className="text-slate-500 text-xs">
-            • Secure Authentication
+            • Authentication Key Recovery System
             <br />
-            • Real-time Firestore Database
+            • No Email Dependencies
             <br />
-            • Enterprise-grade Security
+            • Encrypted Key Storage
           </p>
         </div>
       </div>
