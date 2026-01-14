@@ -3,7 +3,7 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword 
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 
@@ -21,7 +21,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   const [confirmPassword, setConfirmPassword] = useState('');
   const [authKey, setAuthKey] = useState('');
   const [generatedAuthKey, setGeneratedAuthKey] = useState('');
-  const [newUserData, setNewUserData] = useState<User | null>(null);
+  const [loginIdentifier, setLoginIdentifier] = useState(''); // Username or email for login
+  const [recoverUsername, setRecoverUsername] = useState(''); // Username for recovery
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -50,7 +51,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   };
 
   // Save key as text file
-  const downloadKeyAsFile = (key: string, username: string) => {
+  const downloadKeyAsFile = (key: string, username: string, email: string) => {
     const content = `=== REEL EARN AUTHENTICATION KEY ===
 
 Username: ${username}
@@ -84,17 +85,50 @@ Generated on: ${new Date().toLocaleString()}
     setErrors({});
     if (activeTab !== 'signup') {
       setGeneratedAuthKey('');
-      setNewUserData(null);
     }
   }, [activeTab]);
+
+  // Find user by username in Firestore
+  const findUserByUsername = async (username: string): Promise<User | null> => {
+    try {
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('username', '==', username.trim()));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const userDoc = querySnapshot.docs[0];
+        return { id: userDoc.id, ...userDoc.data() } as User;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error finding user by username:', error);
+      return null;
+    }
+  };
+
+  // Find user by email in Firestore
+  const findUserByEmail = async (email: string): Promise<User | null> => {
+    try {
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', email.trim().toLowerCase()));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const userDoc = querySnapshot.docs[0];
+        return { id: userDoc.id, ...userDoc.data() } as User;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error finding user by email:', error);
+      return null;
+    }
+  };
 
   const validateLoginForm = (): boolean => {
     const newErrors: Record<string, string> = {};
     
-    if (!email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      newErrors.email = 'Please enter a valid email address';
+    if (!loginIdentifier.trim()) {
+      newErrors.loginIdentifier = 'Username or email is required';
     }
     
     if (!password) {
@@ -147,48 +181,64 @@ Generated on: ${new Date().toLocaleString()}
       setLoading(true);
       setErrors({});
       
-      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      let userData: User | null = null;
+      let userEmail = '';
       
-      // Fetch user document from Firestore
-      const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
-      
-      if (userDoc.exists()) {
-        const userData = userDoc.data() as User;
-        
-        // Check if user is active
-        if (userData.status === UserStatus.SUSPENDED) {
-          showToast('Account suspended. Please contact support.', 'error');
-          await auth.signOut();
-          return;
-        }
-        
-        // Check if account is locked
-        if (userData.lockoutUntil && userData.lockoutUntil > Date.now()) {
-          const minutesLeft = Math.ceil((userData.lockoutUntil - Date.now()) / (1000 * 60));
-          showToast(`Account locked. Try again in ${minutesLeft} minute(s).`, 'error');
-          return;
-        }
-        
-        const safeUserData = {
-          ...userData,
-          readBroadcastIds: userData.readBroadcastIds || [],
-          lastLoginAt: Date.now()
-        };
-        
-        // Update last login timestamp
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          lastLoginAt: serverTimestamp(),
-          failedAttempts: 0,
-          lockoutUntil: null
-        }, { merge: true });
-        
-        setCurrentUser(safeUserData);
-        setCurrentView(safeUserData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
-        showToast(`Welcome back, ${safeUserData.username}!`, 'success');
+      // Check if loginIdentifier is email or username
+      if (loginIdentifier.includes('@')) {
+        // It's an email
+        userData = await findUserByEmail(loginIdentifier);
+        userEmail = loginIdentifier.trim().toLowerCase();
       } else {
-        showToast('Account setup incomplete. Please contact support.', 'error');
-        await auth.signOut();
+        // It's a username
+        userData = await findUserByUsername(loginIdentifier);
+        if (userData) {
+          userEmail = userData.email;
+        }
       }
+      
+      if (!userData || !userEmail) {
+        showToast('Account not found. Please check your username/email.', 'error');
+        return;
+      }
+      
+      // Check if user is active
+      if (userData.status === UserStatus.SUSPENDED) {
+        showToast('Account suspended. Please contact support.', 'error');
+        return;
+      }
+      
+      // Check if account is locked
+      if (userData.lockoutUntil && userData.lockoutUntil > Date.now()) {
+        const minutesLeft = Math.ceil((userData.lockoutUntil - Date.now()) / (1000 * 60));
+        showToast(`Account locked. Try again in ${minutesLeft} minute(s).`, 'error');
+        return;
+      }
+      
+      // Now login with email and password
+      const userCredential = await signInWithEmailAndPassword(auth, userEmail, password);
+      
+      const safeUserData = {
+        ...userData,
+        readBroadcastIds: userData.readBroadcastIds || [],
+        lastLoginAt: Date.now()
+      };
+      
+      // Update last login timestamp
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        lastLoginAt: serverTimestamp(),
+        failedAttempts: 0,
+        lockoutUntil: null
+      }, { merge: true });
+      
+      setCurrentUser(safeUserData);
+      setCurrentView(safeUserData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
+      showToast(`Welcome back, ${safeUserData.username}!`, 'success');
+      
+      // Clear login form
+      setLoginIdentifier('');
+      setPassword('');
+      
     } catch (error: any) {
       console.error('Login error:', error);
       
@@ -196,7 +246,7 @@ Generated on: ${new Date().toLocaleString()}
       
       switch (error.code) {
         case 'auth/user-not-found':
-          errorMessage = 'No account found with this email.';
+          errorMessage = 'Account not found.';
           break;
         case 'auth/wrong-password':
           errorMessage = 'Incorrect password.';
@@ -233,10 +283,24 @@ Generated on: ${new Date().toLocaleString()}
       setLoading(true);
       setErrors({});
       
+      // Check if username already exists
+      const existingUserByUsername = await findUserByUsername(username);
+      if (existingUserByUsername) {
+        showToast('Username already taken. Please choose another.', 'error');
+        return;
+      }
+      
+      // Check if email already exists
+      const existingUserByEmail = await findUserByEmail(email);
+      if (existingUserByEmail) {
+        showToast('Email already registered. Please login instead.', 'error');
+        return;
+      }
+      
       // Create Firebase Auth user
       const userCredential = await createUserWithEmailAndPassword(
         auth, 
-        email.trim(), 
+        email.trim().toLowerCase(), 
         password
       );
       
@@ -246,7 +310,7 @@ Generated on: ${new Date().toLocaleString()}
       const newUser = {
         id: userCredential.user.uid,
         username: username.trim(),
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         role: UserRole.USER,
         status: UserStatus.ACTIVE,
         walletBalance: 100,
@@ -267,12 +331,8 @@ Generated on: ${new Date().toLocaleString()}
       // Save user document to Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
       
-      // Set generated key and user data BUT DON'T LOGIN AUTOMATICALLY
+      // Set generated key
       setGeneratedAuthKey(securityKey);
-      setNewUserData(newUser);
-      
-      // Sign out from Firebase Auth temporarily
-      await auth.signOut();
       
       showToast('Account created successfully! Save your authentication key.', 'success');
       
@@ -315,7 +375,6 @@ Generated on: ${new Date().toLocaleString()}
     setPassword('');
     setConfirmPassword('');
     setGeneratedAuthKey('');
-    setNewUserData(null);
     
     // Switch to login tab
     setActiveTab('login');
@@ -330,37 +389,53 @@ Generated on: ${new Date().toLocaleString()}
       return;
     }
     
-    if (!email.trim()) {
-      showToast('Please enter your email', 'error');
+    if (!recoverUsername.trim()) {
+      showToast('Please enter your username', 'error');
       return;
     }
     
     try {
       setLoading(true);
       
-      // First, try to find user by email
-      let userFound = false;
-      let userCredentials = null;
+      // Find user by username
+      const userData = await findUserByUsername(recoverUsername);
       
-      try {
-        // Try to sign in with dummy password to get user ID
-        userCredentials = await signInWithEmailAndPassword(auth, email.trim(), 'dummy_password_wrong');
-      } catch (authError: any) {
-        // We expect auth error, but we might get user-not-found
-        if (authError.code === 'auth/user-not-found') {
-          showToast('No account found with this email', 'error');
-          return;
-        }
-        // For wrong password error, continue to check auth key
+      if (!userData) {
+        showToast('Username not found. Please check and try again.', 'error');
+        return;
       }
       
-      // Alternative: We need to query Firestore directly
-      // Since we can't query by email without index, we'll show a message
-      showToast('Please contact support with your authentication key', 'info');
+      // Verify authentication key
+      if (userData.securityKey !== authKey.trim()) {
+        showToast('Invalid authentication key. Please check and try again.', 'error');
+        return;
+      }
+      
+      // Key matches! Show account details
+      showToast(`Authentication successful! Username: ${userData.username}`, 'success');
+      
+      // Show account details
+      const accountDetails = `
+Account Recovery Successful!
+
+Username: ${userData.username}
+Email: ${userData.email}
+Wallet Balance: ₹${userData.walletBalance}
+Status: ${userData.status}
+
+Please login with your username and password.
+`;
+      
+      alert(accountDetails);
+      
+      // Clear recovery form and go to login
+      setRecoverUsername('');
+      setAuthKey('');
+      setActiveTab('login');
       
     } catch (error: any) {
       console.error('Recovery error:', error);
-      showToast('Recovery failed. Please check your authentication key and email.', 'error');
+      showToast('Recovery failed. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -433,7 +508,7 @@ Generated on: ${new Date().toLocaleString()}
                       📋 Copy
                     </button>
                     <button
-                      onClick={() => downloadKeyAsFile(generatedAuthKey, username)}
+                      onClick={() => downloadKeyAsFile(generatedAuthKey, username, email)}
                       className="text-emerald-400 hover:text-emerald-300 text-xs px-3 py-1 bg-emerald-500/10 rounded-lg"
                     >
                       💾 Save as File
@@ -509,6 +584,26 @@ Generated on: ${new Date().toLocaleString()}
 
               {/* Form */}
               <form onSubmit={handleSubmit}>
+                {activeTab === 'login' && (
+                  <div className="mb-4">
+                    <label className="block text-slate-400 text-sm mb-2 font-medium">
+                      Username or Email
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter username or email"
+                      value={loginIdentifier}
+                      onChange={(e) => setLoginIdentifier(e.target.value)}
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                      required
+                      disabled={loading}
+                    />
+                    {errors.loginIdentifier && (
+                      <p className="text-red-400 text-xs mt-1">{errors.loginIdentifier}</p>
+                    )}
+                  </div>
+                )}
+
                 {activeTab === 'signup' && (
                   <div className="mb-4">
                     <label className="block text-slate-400 text-sm mb-2 font-medium">
@@ -523,58 +618,107 @@ Generated on: ${new Date().toLocaleString()}
                       required
                       disabled={loading}
                     />
+                    {errors.username && (
+                      <p className="text-red-400 text-xs mt-1">{errors.username}</p>
+                    )}
                   </div>
                 )}
 
-                <div className="mb-4">
-                  <label className="block text-slate-400 text-sm mb-2 font-medium">
-                    Email Address
-                  </label>
-                  <input
-                    type="email"
-                    placeholder="your@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                    required
-                    disabled={loading}
-                  />
-                </div>
+                {activeTab === 'signup' && (
+                  <div className="mb-4">
+                    <label className="block text-slate-400 text-sm mb-2 font-medium">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="your@email.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                      required
+                      disabled={loading}
+                    />
+                    {errors.email && (
+                      <p className="text-red-400 text-xs mt-1">{errors.email}</p>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'recover' && (
+                  <div className="mb-4">
+                    <label className="block text-slate-400 text-sm mb-2 font-medium">
+                      Username
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter your username"
+                      value={recoverUsername}
+                      onChange={(e) => setRecoverUsername(e.target.value)}
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                      required
+                      disabled={loading}
+                    />
+                  </div>
+                )}
 
                 {activeTab !== 'recover' && (
-                  <>
-                    <div className="mb-4">
-                      <label className="block text-slate-400 text-sm mb-2 font-medium">
-                        Password
-                      </label>
-                      <input
-                        type="password"
-                        placeholder={activeTab === 'signup' ? "Create a password (min 6 chars)" : "Enter your password"}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                        required
-                        disabled={loading}
-                      />
-                    </div>
-
-                    {activeTab === 'signup' && (
-                      <div className="mb-6">
-                        <label className="block text-slate-400 text-sm mb-2 font-medium">
-                          Confirm Password
-                        </label>
-                        <input
-                          type="password"
-                          placeholder="Confirm your password"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                          required
-                          disabled={loading}
-                        />
-                      </div>
+                  <div className="mb-4">
+                    <label className="block text-slate-400 text-sm mb-2 font-medium">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      placeholder={activeTab === 'signup' ? "Create a password (min 6 chars)" : "Enter your password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                      required
+                      disabled={loading}
+                    />
+                    {errors.password && (
+                      <p className="text-red-400 text-xs mt-1">{errors.password}</p>
                     )}
-                  </>
+                  </div>
+                )}
+
+                {activeTab === 'signup' && (
+                  <div className="mb-6">
+                    <label className="block text-slate-400 text-sm mb-2 font-medium">
+                      Confirm Password
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Confirm your password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                      required
+                      disabled={loading}
+                    />
+                    {errors.confirmPassword && (
+                      <p className="text-red-400 text-xs mt-1">{errors.confirmPassword}</p>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'recover' && (
+                  <div className="mb-6">
+                    <label className="block text-slate-400 text-sm mb-2 font-medium">
+                      Authentication Key
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter your authentication key"
+                      value={authKey}
+                      onChange={(e) => setAuthKey(e.target.value)}
+                      className="w-full bg-slate-800/50 border border-amber-500/50 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-colors"
+                      required
+                      disabled={loading}
+                    />
+                    <p className="text-amber-400 text-xs mt-2">
+                      Enter the authentication key you received during signup
+                    </p>
+                  </div>
                 )}
 
                 {/* Forgot Password / Recover Account Link */}
@@ -629,6 +773,8 @@ Generated on: ${new Date().toLocaleString()}
                                     activeTab === 'signup' ? 'login' : 'login';
                       setActiveTab(nextTab);
                       setErrors({});
+                      setRecoverUsername('');
+                      setAuthKey('');
                     }}
                     className="text-cyan-400 hover:text-cyan-300 font-semibold ml-1 transition-colors"
                     disabled={loading}
@@ -668,11 +814,11 @@ Generated on: ${new Date().toLocaleString()}
             </span>
           </div>
           <p className="text-slate-500 text-xs">
+            • Login with Username or Email
+            <br />
             • Authentication Key Recovery System
             <br />
             • No Email Dependencies
-            <br />
-            • Encrypted Key Storage
           </p>
         </div>
       </div>
