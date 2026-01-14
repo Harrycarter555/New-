@@ -644,3 +644,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ appState, setAppState, currentU
 
   // Render members tab (CONTINUED IN NEXT MESSAGE - TOO LONG)
   // ... (बाकी code यही रहेगा, बस Firestore functions connected हैं)
+  };
+
+export default AdminPanel;
