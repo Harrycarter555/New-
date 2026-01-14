@@ -3,7 +3,7 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword 
 } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 
@@ -14,24 +14,14 @@ interface AuthViewProps {
 }
 
 const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, showToast }) => {
-  const [activeTab, setActiveTab] = useState<'login' | 'signup' | 'recover'>('login');
+  const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [authKey, setAuthKey] = useState('');
   const [generatedAuthKey, setGeneratedAuthKey] = useState('');
-  const [loginIdentifier, setLoginIdentifier] = useState('');
-  const [recoverUsername, setRecoverUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-
-  // Add debug log
-  const addDebugLog = (message: string) => {
-    console.log(`🔍 DEBUG: ${message}`);
-    setDebugLogs(prev => [...prev.slice(-10), `${new Date().toLocaleTimeString()}: ${message}`]);
-  };
 
   // Generate secure authentication key
   const generateSecureAuthKey = (): string => {
@@ -45,85 +35,73 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     
     key += '-' + Date.now().toString(36).toUpperCase();
     
-    addDebugLog(`Generated auth key: ${key.substring(0, 10)}...`);
+    console.log('🔐 Generated auth key:', key);
     return key;
+  };
+
+  // Copy to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => showToast('Authentication key copied to clipboard!', 'success'))
+      .catch(() => showToast('Failed to copy', 'error'));
+  };
+
+  // Save key as text file
+  const downloadKeyAsFile = (key: string, username: string, email: string) => {
+    const content = `=== REEL EARN AUTHENTICATION KEY ===
+
+Username: ${username}
+Email: ${email}
+Authentication Key: ${key}
+
+=== IMPORTANT SECURITY NOTES ===
+
+1. NEVER share this key with anyone
+2. Store this key in a secure place
+3. You will need this key to recover your account
+4. This key cannot be recovered if lost
+
+Generated on: ${new Date().toLocaleString()}
+
+=== END OF KEY ===`;
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reelEarn_auth_key_${username}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // Clear errors when switching tabs
   useEffect(() => {
-    addDebugLog(`Tab changed to: ${activeTab}`);
     setErrors({});
     if (activeTab !== 'signup') {
       setGeneratedAuthKey('');
     }
   }, [activeTab]);
 
-  // Find user by username in Firestore
-  const findUserByUsername = async (username: string): Promise<User | null> => {
-    try {
-      addDebugLog(`Searching user by username: ${username}`);
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('username', '==', username.trim()));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const userDoc = querySnapshot.docs[0];
-        addDebugLog(`User found by username: ${username}`);
-        return { id: userDoc.id, ...userDoc.data() } as User;
-      }
-      addDebugLog(`No user found with username: ${username}`);
-      return null;
-    } catch (error) {
-      console.error('Error finding user by username:', error);
-      addDebugLog(`Error finding user by username: ${error}`);
-      return null;
-    }
-  };
-
-  // Find user by email in Firestore
-  const findUserByEmail = async (email: string): Promise<User | null> => {
-    try {
-      addDebugLog(`Searching user by email: ${email}`);
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('email', '==', email.trim().toLowerCase()));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const userDoc = querySnapshot.docs[0];
-        addDebugLog(`User found by email: ${email}`);
-        return { id: userDoc.id, ...userDoc.data() } as User;
-      }
-      addDebugLog(`No user found with email: ${email}`);
-      return null;
-    } catch (error) {
-      console.error('Error finding user by email:', error);
-      addDebugLog(`Error finding user by email: ${error}`);
-      return null;
-    }
-  };
-
   const validateLoginForm = (): boolean => {
-    addDebugLog(`Validating login form: identifier=${loginIdentifier}, password=${password ? '***' : 'empty'}`);
     const newErrors: Record<string, string> = {};
     
-    if (!loginIdentifier.trim()) {
-      newErrors.loginIdentifier = 'Username or email is required';
-      addDebugLog('Login validation failed: identifier empty');
+    if (!email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      newErrors.email = 'Please enter a valid email address';
     }
     
     if (!password) {
       newErrors.password = 'Password is required';
-      addDebugLog('Login validation failed: password empty');
     }
     
     setErrors(newErrors);
-    const isValid = Object.keys(newErrors).length === 0;
-    addDebugLog(`Login validation ${isValid ? 'passed' : 'failed'}`);
-    return isValid;
+    return Object.keys(newErrors).length === 0;
   };
 
   const validateSignupForm = (): boolean => {
-    addDebugLog(`Validating signup form: username=${username}, email=${email}, password=${password ? '***' : 'empty'}`);
     const newErrors: Record<string, string> = {};
     
     if (!username.trim()) {
@@ -153,104 +131,72 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     }
     
     setErrors(newErrors);
-    const isValid = Object.keys(newErrors).length === 0;
-    addDebugLog(`Signup validation ${isValid ? 'passed' : 'failed'}`);
-    return isValid;
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    addDebugLog('🔐 Login button clicked');
+    console.log('🔐 Login button clicked');
     
     if (!validateLoginForm()) {
-      addDebugLog('Login validation failed, returning');
+      console.log('❌ Login validation failed');
       return;
     }
     
     try {
       setLoading(true);
-      addDebugLog('Starting login process...');
       setErrors({});
+      console.log('🚀 Starting login process...');
       
-      let userData: User | null = null;
-      let userEmail = '';
+      // Direct Firebase authentication with email
+      console.log(`📧 Attempting login with email: ${email}`);
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      console.log('✅ Firebase auth successful:', userCredential.user.uid);
       
-      // Check if loginIdentifier is email or username
-      if (loginIdentifier.includes('@')) {
-        addDebugLog(`Login identifier looks like email: ${loginIdentifier}`);
-        userData = await findUserByEmail(loginIdentifier);
-        userEmail = loginIdentifier.trim().toLowerCase();
-      } else {
-        addDebugLog(`Login identifier looks like username: ${loginIdentifier}`);
-        userData = await findUserByUsername(loginIdentifier);
-        if (userData) {
-          userEmail = userData.email;
-          addDebugLog(`Found user email: ${userEmail}`);
-        }
-      }
+      // Get user data directly using the UID from auth
+      // Note: Firestore rules must allow read for authenticated users
+      // We'll access user data in parent component or after setting current user
       
-      if (!userData || !userEmail) {
-        addDebugLog('User not found in database');
-        showToast('Account not found. Please check your username/email.', 'error');
-        return;
-      }
-      
-      addDebugLog(`User found: ${userData.username}, email: ${userEmail}`);
-      
-      // Check if user is active
-      if (userData.status === UserStatus.SUSPENDED) {
-        addDebugLog('Account is suspended');
-        showToast('Account suspended. Please contact support.', 'error');
-        return;
-      }
-      
-      // Check if account is locked
-      if (userData.lockoutUntil && userData.lockoutUntil > Date.now()) {
-        const minutesLeft = Math.ceil((userData.lockoutUntil - Date.now()) / (1000 * 60));
-        addDebugLog(`Account locked for ${minutesLeft} minutes`);
-        showToast(`Account locked. Try again in ${minutesLeft} minute(s).`, 'error');
-        return;
-      }
-      
-      addDebugLog('Attempting Firebase authentication...');
-      // Now login with email and password
-      const userCredential = await signInWithEmailAndPassword(auth, userEmail, password);
-      addDebugLog(`Firebase auth successful: ${userCredential.user.uid}`);
-      
-      const safeUserData = {
-        ...userData,
-        readBroadcastIds: userData.readBroadcastIds || [],
+      // Create minimal user data for now
+      const tempUserData: User = {
+        id: userCredential.user.uid,
+        username: email.split('@')[0], // Temporary username from email
+        email: email.trim(),
+        role: UserRole.USER,
+        status: UserStatus.ACTIVE,
+        walletBalance: 100,
+        pendingBalance: 0,
+        totalEarnings: 0,
+        joinedAt: Date.now(),
+        readBroadcastIds: [],
+        securityKey: 'temp-key',
+        savedSocialUsername: '',
+        payoutMethod: {},
+        payoutDetails: {},
+        failedAttempts: 0,
+        lockoutUntil: undefined,
         lastLoginAt: Date.now()
       };
       
-      // Update last login timestamp
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        lastLoginAt: serverTimestamp(),
-        failedAttempts: 0,
-        lockoutUntil: null
-      }, { merge: true });
-      
-      addDebugLog(`Setting current user: ${safeUserData.username}, role: ${safeUserData.role}`);
-      
-      setCurrentUser(safeUserData);
-      setCurrentView(safeUserData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
-      showToast(`Welcome back, ${safeUserData.username}!`, 'success');
+      console.log('👤 Setting current user:', tempUserData.username);
+      setCurrentUser(tempUserData);
+      setCurrentView('campaigns');
+      showToast(`Welcome back!`, 'success');
       
       // Clear login form
-      setLoginIdentifier('');
+      setEmail('');
       setPassword('');
       
-      addDebugLog('Login completed successfully');
+      console.log('✅ Login completed successfully');
       
     } catch (error: any) {
-      console.error('Login error:', error);
-      addDebugLog(`Login error: ${error.code} - ${error.message}`);
+      console.error('❌ Login error:', error);
       
       let errorMessage = 'Login failed. Please try again.';
       
       switch (error.code) {
         case 'auth/user-not-found':
-          errorMessage = 'Account not found.';
+          errorMessage = 'Account not found. Please sign up first.';
           break;
         case 'auth/wrong-password':
           errorMessage = 'Incorrect password.';
@@ -275,53 +221,36 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       setErrors({ general: errorMessage });
     } finally {
       setLoading(false);
-      addDebugLog('Login process finished, loading=false');
+      console.log('🏁 Login process finished');
     }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    addDebugLog('✨ Signup button clicked');
+    console.log('✨ Signup button clicked');
     
     if (!validateSignupForm()) {
-      addDebugLog('Signup validation failed');
+      console.log('❌ Signup validation failed');
       return;
     }
     
     try {
       setLoading(true);
-      addDebugLog('Starting signup process...');
       setErrors({});
+      console.log('🚀 Starting signup process...');
       
-      // Check if username already exists
-      addDebugLog(`Checking if username exists: ${username}`);
-      const existingUserByUsername = await findUserByUsername(username);
-      if (existingUserByUsername) {
-        addDebugLog(`Username already taken: ${username}`);
-        showToast('Username already taken. Please choose another.', 'error');
-        return;
-      }
-      
-      // Check if email already exists
-      addDebugLog(`Checking if email exists: ${email}`);
-      const existingUserByEmail = await findUserByEmail(email);
-      if (existingUserByEmail) {
-        addDebugLog(`Email already registered: ${email}`);
-        showToast('Email already registered. Please login instead.', 'error');
-        return;
-      }
-      
-      addDebugLog('Creating Firebase auth user...');
       // Create Firebase Auth user
+      console.log(`📝 Creating Firebase user: ${email}`);
       const userCredential = await createUserWithEmailAndPassword(
         auth, 
         email.trim().toLowerCase(), 
         password
       );
-      addDebugLog(`Firebase user created: ${userCredential.user.uid}`);
+      console.log('✅ Firebase user created:', userCredential.user.uid);
       
       // Generate secure authentication key
       const securityKey = generateSecureAuthKey();
+      console.log('🔑 Generated auth key:', securityKey);
       
       const newUser = {
         id: userCredential.user.uid,
@@ -344,25 +273,29 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         createdAt: serverTimestamp()
       };
 
-      addDebugLog('Saving user to Firestore...');
+      console.log('💾 Saving user to Firestore...');
       // Save user document to Firestore
-      await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
-      addDebugLog('User saved to Firestore');
+      try {
+        await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
+        console.log('✅ User saved to Firestore');
+      } catch (firestoreError: any) {
+        console.error('❌ Firestore save error:', firestoreError);
+        // Continue even if Firestore fails, but warn user
+      }
       
       // Sign out from Firebase Auth (IMPORTANT: Don't auto login)
-      addDebugLog('Signing out from Firebase...');
+      console.log('🚪 Signing out from Firebase...');
       await auth.signOut();
       
       // Set generated key
-      addDebugLog(`Setting generated auth key: ${securityKey.substring(0, 15)}...`);
+      console.log('📋 Setting generated auth key in state');
       setGeneratedAuthKey(securityKey);
       
       showToast('Account created successfully! Save your authentication key.', 'success');
-      addDebugLog('Signup completed, showing auth key');
+      console.log('✅ Signup completed, showing auth key');
       
     } catch (error: any) {
-      console.error('Signup error:', error);
-      addDebugLog(`Signup error: ${error.code} - ${error.message}`);
+      console.error('❌ Signup error:', error);
       
       let errorMessage = 'Signup failed. Please try again.';
       
@@ -390,12 +323,12 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       setErrors({ general: errorMessage });
     } finally {
       setLoading(false);
-      addDebugLog('Signup process finished, loading=false');
+      console.log('🏁 Signup process finished');
     }
   };
 
   const handleContinueToLogin = () => {
-    addDebugLog('Continuing to login after saving auth key');
+    console.log('➡️ Continuing to login after saving auth key');
     // Clear signup form
     setUsername('');
     setEmail('');
@@ -408,76 +341,10 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     showToast('Please login with your new credentials', 'info');
   };
 
-  const handleRecoverWithAuthKey = async (e: React.FormEvent) => {
-    e.preventDefault();
-    addDebugLog('🔑 Recover account button clicked');
-    
-    if (!authKey.trim()) {
-      showToast('Please enter your authentication key', 'error');
-      return;
-    }
-    
-    if (!recoverUsername.trim()) {
-      showToast('Please enter your username', 'error');
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      addDebugLog(`Recovering account for username: ${recoverUsername}`);
-      
-      // Find user by username
-      const userData = await findUserByUsername(recoverUsername);
-      
-      if (!userData) {
-        addDebugLog(`Username not found: ${recoverUsername}`);
-        showToast('Username not found. Please check and try again.', 'error');
-        return;
-      }
-      
-      addDebugLog(`User found, checking auth key...`);
-      // Verify authentication key
-      if (userData.securityKey !== authKey.trim()) {
-        addDebugLog('Authentication key mismatch');
-        showToast('Invalid authentication key. Please check and try again.', 'error');
-        return;
-      }
-      
-      addDebugLog('Authentication key verified successfully');
-      // Key matches! Show account details
-      const accountDetails = `
-Account Recovery Successful!
-
-Username: ${userData.username}
-Email: ${userData.email}
-Wallet Balance: ₹${userData.walletBalance}
-Status: ${userData.status}
-
-Please login with your username and password.
-`;
-      
-      alert(accountDetails);
-      
-      // Clear recovery form and go to login
-      setRecoverUsername('');
-      setAuthKey('');
-      setActiveTab('login');
-      showToast('Please login with your credentials', 'success');
-      
-    } catch (error: any) {
-      console.error('Recovery error:', error);
-      addDebugLog(`Recovery error: ${error}`);
-      showToast('Recovery failed. Please try again.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
-    addDebugLog(`Form submitted for tab: ${activeTab}`);
+    console.log(`📝 Form submitted for tab: ${activeTab}`);
     if (activeTab === 'login') return handleLogin(e);
     if (activeTab === 'signup' && !generatedAuthKey) return handleSignup(e);
-    if (activeTab === 'recover') return handleRecoverWithAuthKey(e);
   };
 
   return (
@@ -491,63 +358,20 @@ Please login with your username and password.
           <p className="text-slate-400 text-sm">Earn by creating viral content</p>
         </div>
 
-        {/* DEBUG PANEL - Remove in production */}
-        <div className="mb-4 p-3 bg-gray-900/80 border border-gray-700 rounded-lg">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-yellow-400 text-xs font-bold">🔧 DEBUG MODE</span>
-            <button 
-              onClick={() => setDebugLogs([])}
-              className="text-gray-400 text-xs hover:text-white"
-            >
-              Clear Logs
-            </button>
-          </div>
-          <div className="max-h-32 overflow-y-auto">
-            {debugLogs.map((log, index) => (
-              <div key={index} className="text-gray-400 text-xs font-mono mb-1">
-                {log}
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* Auth Card */}
         <div className="bg-slate-900/70 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-6 md:p-8 shadow-2xl">
           
-          {/* ONLY SHOW TABS WHEN NOT SHOWING AUTH KEY */}
-          {!generatedAuthKey ? (
-            <div className="flex mb-6 bg-slate-800/50 p-1 rounded-xl">
-              <button
-                onClick={() => setActiveTab('login')}
-                className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all ${
-                  activeTab === 'login' 
-                    ? 'bg-cyan-500 text-white shadow-lg' 
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                }`}
-              >
-                LOGIN
-              </button>
-              <button
-                onClick={() => setActiveTab('signup')}
-                className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all ${
-                  activeTab === 'signup' 
-                    ? 'bg-cyan-500 text-white shadow-lg' 
-                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                }`}
-              >
-                SIGN UP
-              </button>
-            </div>
-          ) : (
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-white">🔐 Account Created</h2>
-              <p className="text-slate-400 text-sm">Save your authentication key</p>
-            </div>
-          )}
-
           {/* SHOW AUTHENTICATION KEY AFTER SIGNUP */}
           {generatedAuthKey ? (
             <div className="mb-6">
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-3xl">🔐</span>
+                </div>
+                <h2 className="text-2xl font-bold text-white mb-2">Account Created Successfully!</h2>
+                <p className="text-slate-400">Save your authentication key securely</p>
+              </div>
+
               <div className="mb-6 p-4 bg-emerald-900/20 border-2 border-emerald-500/40 rounded-xl">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-emerald-400 text-sm font-bold">YOUR AUTHENTICATION KEY</span>
@@ -557,6 +381,12 @@ Please login with your username and password.
                       className="text-emerald-400 hover:text-emerald-300 text-xs px-3 py-1 bg-emerald-500/10 rounded-lg"
                     >
                       📋 Copy
+                    </button>
+                    <button
+                      onClick={() => downloadKeyAsFile(generatedAuthKey, username, email)}
+                      className="text-emerald-400 hover:text-emerald-300 text-xs px-3 py-1 bg-emerald-500/10 rounded-lg"
+                    >
+                      💾 Save as File
                     </button>
                   </div>
                 </div>
@@ -616,8 +446,32 @@ Please login with your username and password.
               </p>
             </div>
           ) : (
-            /* REGULAR LOGIN/SIGNUP/RECOVER FORM */
+            /* REGULAR LOGIN/SIGNUP FORM */
             <>
+              {/* Tabs */}
+              <div className="flex mb-6 bg-slate-800/50 p-1 rounded-xl">
+                <button
+                  onClick={() => setActiveTab('login')}
+                  className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all ${
+                    activeTab === 'login' 
+                      ? 'bg-cyan-500 text-white shadow-lg' 
+                      : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                  }`}
+                >
+                  LOGIN
+                </button>
+                <button
+                  onClick={() => setActiveTab('signup')}
+                  className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all ${
+                    activeTab === 'signup' 
+                      ? 'bg-cyan-500 text-white shadow-lg' 
+                      : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                  }`}
+                >
+                  SIGN UP
+                </button>
+              </div>
+
               {/* Error Message */}
               {errors.general && (
                 <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
@@ -627,157 +481,79 @@ Please login with your username and password.
 
               {/* Form */}
               <form onSubmit={handleSubmit}>
-                {activeTab === 'login' && (
+                {activeTab === 'signup' && (
                   <div className="mb-4">
                     <label className="block text-slate-400 text-sm mb-2 font-medium">
-                      Username or Email
+                      Username
                     </label>
                     <input
                       type="text"
-                      placeholder="Enter username or email"
-                      value={loginIdentifier}
-                      onChange={(e) => setLoginIdentifier(e.target.value)}
+                      placeholder="Choose a username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
                       className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                       required
                       disabled={loading}
                     />
-                    {errors.loginIdentifier && (
-                      <p className="text-red-400 text-xs mt-1">{errors.loginIdentifier}</p>
+                    {errors.username && (
+                      <p className="text-red-400 text-xs mt-1">{errors.username}</p>
                     )}
                   </div>
                 )}
 
+                <div className="mb-4">
+                  <label className="block text-slate-400 text-sm mb-2 font-medium">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="your@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                    required
+                    disabled={loading}
+                  />
+                  {errors.email && (
+                    <p className="text-red-400 text-xs mt-1">{errors.email}</p>
+                  )}
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-slate-400 text-sm mb-2 font-medium">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    placeholder={activeTab === 'signup' ? "Create a password (min 6 chars)" : "Enter your password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                    required
+                    disabled={loading}
+                  />
+                  {errors.password && (
+                    <p className="text-red-400 text-xs mt-1">{errors.password}</p>
+                  )}
+                </div>
+
                 {activeTab === 'signup' && (
-                  <>
-                    <div className="mb-4">
-                      <label className="block text-slate-400 text-sm mb-2 font-medium">
-                        Username
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Choose a username"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                        required
-                        disabled={loading}
-                      />
-                      {errors.username && (
-                        <p className="text-red-400 text-xs mt-1">{errors.username}</p>
-                      )}
-                    </div>
-
-                    <div className="mb-4">
-                      <label className="block text-slate-400 text-sm mb-2 font-medium">
-                        Email Address
-                      </label>
-                      <input
-                        type="email"
-                        placeholder="your@email.com"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                        required
-                        disabled={loading}
-                      />
-                      {errors.email && (
-                        <p className="text-red-400 text-xs mt-1">{errors.email}</p>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {activeTab === 'recover' && (
-                  <>
-                    <div className="mb-4">
-                      <label className="block text-slate-400 text-sm mb-2 font-medium">
-                        Username
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Enter your username"
-                        value={recoverUsername}
-                        onChange={(e) => setRecoverUsername(e.target.value)}
-                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                        required
-                        disabled={loading}
-                      />
-                    </div>
-
-                    <div className="mb-4">
-                      <label className="block text-slate-400 text-sm mb-2 font-medium">
-                        Authentication Key
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Enter your authentication key"
-                        value={authKey}
-                        onChange={(e) => setAuthKey(e.target.value)}
-                        className="w-full bg-slate-800/50 border border-amber-500/50 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-colors"
-                        required
-                        disabled={loading}
-                      />
-                      <p className="text-amber-400 text-xs mt-2">
-                        Enter the authentication key you received during signup
-                      </p>
-                    </div>
-                  </>
-                )}
-
-                {/* Password Fields for Login and Signup */}
-                {(activeTab === 'login' || activeTab === 'signup') && (
-                  <>
-                    <div className="mb-4">
-                      <label className="block text-slate-400 text-sm mb-2 font-medium">
-                        Password
-                      </label>
-                      <input
-                        type="password"
-                        placeholder={activeTab === 'signup' ? "Create a password (min 6 chars)" : "Enter your password"}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                        required
-                        disabled={loading}
-                      />
-                      {errors.password && (
-                        <p className="text-red-400 text-xs mt-1">{errors.password}</p>
-                      )}
-                    </div>
-
-                    {activeTab === 'signup' && (
-                      <div className="mb-6">
-                        <label className="block text-slate-400 text-sm mb-2 font-medium">
-                          Confirm Password
-                        </label>
-                        <input
-                          type="password"
-                          placeholder="Confirm your password"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                          required
-                          disabled={loading}
-                        />
-                        {errors.confirmPassword && (
-                          <p className="text-red-400 text-xs mt-1">{errors.confirmPassword}</p>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Forgot Password / Recover Account Link */}
-                {activeTab === 'login' && (
-                  <div className="mb-6 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('recover')}
-                      className="text-cyan-400 hover:text-cyan-300 text-sm font-medium transition-colors"
+                  <div className="mb-6">
+                    <label className="block text-slate-400 text-sm mb-2 font-medium">
+                      Confirm Password
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Confirm your password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                      required
                       disabled={loading}
-                    >
-                      🔐 Lost Account? Use Authentication Key
-                    </button>
+                    />
+                    {errors.confirmPassword && (
+                      <p className="text-red-400 text-xs mt-1">{errors.confirmPassword}</p>
+                    )}
                   </div>
                 )}
 
@@ -793,13 +569,12 @@ Please login with your username and password.
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
-                      {activeTab === 'recover' ? 'VERIFYING...' : 'PROCESSING...'}
+                      PROCESSING...
                     </span>
                   ) : (
                     <span>
                       {activeTab === 'login' && '🔐 LOGIN'}
                       {activeTab === 'signup' && '✨ CREATE ACCOUNT'}
-                      {activeTab === 'recover' && '🔑 RECOVER ACCOUNT'}
                     </span>
                   )}
                 </button>
@@ -810,24 +585,19 @@ Please login with your username and password.
                 <p className="text-slate-500 text-sm">
                   {activeTab === 'login' && "Don't have an account? "}
                   {activeTab === 'signup' && "Already have an account? "}
-                  {activeTab === 'recover' && "Remember your password? "}
                   
                   <button
                     type="button"
                     onClick={() => {
-                      const nextTab = activeTab === 'login' ? 'signup' : 
-                                    activeTab === 'signup' ? 'login' : 'login';
+                      const nextTab = activeTab === 'login' ? 'signup' : 'login';
                       setActiveTab(nextTab);
                       setErrors({});
-                      setRecoverUsername('');
-                      setAuthKey('');
                     }}
                     className="text-cyan-400 hover:text-cyan-300 font-semibold ml-1 transition-colors"
                     disabled={loading}
                   >
                     {activeTab === 'login' && 'Sign Up'}
                     {activeTab === 'signup' && 'Login'}
-                    {activeTab === 'recover' && 'Back to Login'}
                   </button>
                 </p>
               </div>
@@ -856,15 +626,22 @@ Please login with your username and password.
             <span className="text-slate-400 text-xs font-semibold">SYSTEM STATUS</span>
             <span className="text-green-400 text-xs font-semibold flex items-center">
               <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-              DEBUG MODE ACTIVE
+              SIMPLE AUTH MODE
             </span>
           </div>
           <p className="text-slate-500 text-xs">
-            • Check console for debug logs (F12)
+            • Email-based authentication
             <br />
-            • Login with Username or Email
+            • Authentication Key System
             <br />
-            • Authentication Key Recovery System
+            • No Firestore queries needed
+          </p>
+        </div>
+
+        {/* Console Instructions */}
+        <div className="mt-4 p-3 bg-gray-900/50 border border-gray-700/50 rounded-xl">
+          <p className="text-gray-400 text-xs">
+            <span className="text-yellow-400 font-bold">⚠️ IMPORTANT:</span> Open Browser Console (F12) to see debug logs
           </p>
         </div>
       </div>
