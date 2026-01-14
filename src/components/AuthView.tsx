@@ -3,7 +3,7 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword 
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 
@@ -25,6 +25,13 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   const [recoverUsername, setRecoverUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  // Add debug log
+  const addDebugLog = (message: string) => {
+    console.log(`🔍 DEBUG: ${message}`);
+    setDebugLogs(prev => [...prev.slice(-10), `${new Date().toLocaleTimeString()}: ${message}`]);
+  };
 
   // Generate secure authentication key
   const generateSecureAuthKey = (): string => {
@@ -38,48 +45,13 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     
     key += '-' + Date.now().toString(36).toUpperCase();
     
+    addDebugLog(`Generated auth key: ${key.substring(0, 10)}...`);
     return key;
-  };
-
-  // Copy to clipboard
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-      .then(() => showToast('Authentication key copied to clipboard!', 'success'))
-      .catch(() => showToast('Failed to copy', 'error'));
-  };
-
-  // Save key as text file
-  const downloadKeyAsFile = (key: string, username: string, email: string) => {
-    const content = `=== REEL EARN AUTHENTICATION KEY ===
-
-Username: ${username}
-Email: ${email}
-Authentication Key: ${key}
-
-=== IMPORTANT SECURITY NOTES ===
-
-1. NEVER share this key with anyone
-2. Store this key in a secure place
-3. You will need this key to recover your account
-4. This key cannot be recovered if lost
-
-Generated on: ${new Date().toLocaleString()}
-
-=== END OF KEY ===`;
-
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `reelEarn_auth_key_${username}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
   // Clear errors when switching tabs
   useEffect(() => {
+    addDebugLog(`Tab changed to: ${activeTab}`);
     setErrors({});
     if (activeTab !== 'signup') {
       setGeneratedAuthKey('');
@@ -89,17 +61,21 @@ Generated on: ${new Date().toLocaleString()}
   // Find user by username in Firestore
   const findUserByUsername = async (username: string): Promise<User | null> => {
     try {
+      addDebugLog(`Searching user by username: ${username}`);
       const usersRef = collection(db, 'users');
       const q = query(usersRef, where('username', '==', username.trim()));
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
         const userDoc = querySnapshot.docs[0];
+        addDebugLog(`User found by username: ${username}`);
         return { id: userDoc.id, ...userDoc.data() } as User;
       }
+      addDebugLog(`No user found with username: ${username}`);
       return null;
     } catch (error) {
       console.error('Error finding user by username:', error);
+      addDebugLog(`Error finding user by username: ${error}`);
       return null;
     }
   };
@@ -107,37 +83,47 @@ Generated on: ${new Date().toLocaleString()}
   // Find user by email in Firestore
   const findUserByEmail = async (email: string): Promise<User | null> => {
     try {
+      addDebugLog(`Searching user by email: ${email}`);
       const usersRef = collection(db, 'users');
       const q = query(usersRef, where('email', '==', email.trim().toLowerCase()));
       const querySnapshot = await getDocs(q);
       
       if (!querySnapshot.empty) {
         const userDoc = querySnapshot.docs[0];
+        addDebugLog(`User found by email: ${email}`);
         return { id: userDoc.id, ...userDoc.data() } as User;
       }
+      addDebugLog(`No user found with email: ${email}`);
       return null;
     } catch (error) {
       console.error('Error finding user by email:', error);
+      addDebugLog(`Error finding user by email: ${error}`);
       return null;
     }
   };
 
   const validateLoginForm = (): boolean => {
+    addDebugLog(`Validating login form: identifier=${loginIdentifier}, password=${password ? '***' : 'empty'}`);
     const newErrors: Record<string, string> = {};
     
     if (!loginIdentifier.trim()) {
       newErrors.loginIdentifier = 'Username or email is required';
+      addDebugLog('Login validation failed: identifier empty');
     }
     
     if (!password) {
       newErrors.password = 'Password is required';
+      addDebugLog('Login validation failed: password empty');
     }
     
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const isValid = Object.keys(newErrors).length === 0;
+    addDebugLog(`Login validation ${isValid ? 'passed' : 'failed'}`);
+    return isValid;
   };
 
   const validateSignupForm = (): boolean => {
+    addDebugLog(`Validating signup form: username=${username}, email=${email}, password=${password ? '***' : 'empty'}`);
     const newErrors: Record<string, string> = {};
     
     if (!username.trim()) {
@@ -167,16 +153,23 @@ Generated on: ${new Date().toLocaleString()}
     }
     
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const isValid = Object.keys(newErrors).length === 0;
+    addDebugLog(`Signup validation ${isValid ? 'passed' : 'failed'}`);
+    return isValid;
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    addDebugLog('🔐 Login button clicked');
     
-    if (!validateLoginForm()) return;
+    if (!validateLoginForm()) {
+      addDebugLog('Login validation failed, returning');
+      return;
+    }
     
     try {
       setLoading(true);
+      addDebugLog('Starting login process...');
       setErrors({});
       
       let userData: User | null = null;
@@ -184,24 +177,29 @@ Generated on: ${new Date().toLocaleString()}
       
       // Check if loginIdentifier is email or username
       if (loginIdentifier.includes('@')) {
-        // It's an email
+        addDebugLog(`Login identifier looks like email: ${loginIdentifier}`);
         userData = await findUserByEmail(loginIdentifier);
         userEmail = loginIdentifier.trim().toLowerCase();
       } else {
-        // It's a username
+        addDebugLog(`Login identifier looks like username: ${loginIdentifier}`);
         userData = await findUserByUsername(loginIdentifier);
         if (userData) {
           userEmail = userData.email;
+          addDebugLog(`Found user email: ${userEmail}`);
         }
       }
       
       if (!userData || !userEmail) {
+        addDebugLog('User not found in database');
         showToast('Account not found. Please check your username/email.', 'error');
         return;
       }
       
+      addDebugLog(`User found: ${userData.username}, email: ${userEmail}`);
+      
       // Check if user is active
       if (userData.status === UserStatus.SUSPENDED) {
+        addDebugLog('Account is suspended');
         showToast('Account suspended. Please contact support.', 'error');
         return;
       }
@@ -209,12 +207,15 @@ Generated on: ${new Date().toLocaleString()}
       // Check if account is locked
       if (userData.lockoutUntil && userData.lockoutUntil > Date.now()) {
         const minutesLeft = Math.ceil((userData.lockoutUntil - Date.now()) / (1000 * 60));
+        addDebugLog(`Account locked for ${minutesLeft} minutes`);
         showToast(`Account locked. Try again in ${minutesLeft} minute(s).`, 'error');
         return;
       }
       
+      addDebugLog('Attempting Firebase authentication...');
       // Now login with email and password
       const userCredential = await signInWithEmailAndPassword(auth, userEmail, password);
+      addDebugLog(`Firebase auth successful: ${userCredential.user.uid}`);
       
       const safeUserData = {
         ...userData,
@@ -229,6 +230,8 @@ Generated on: ${new Date().toLocaleString()}
         lockoutUntil: null
       }, { merge: true });
       
+      addDebugLog(`Setting current user: ${safeUserData.username}, role: ${safeUserData.role}`);
+      
       setCurrentUser(safeUserData);
       setCurrentView(safeUserData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
       showToast(`Welcome back, ${safeUserData.username}!`, 'success');
@@ -237,8 +240,11 @@ Generated on: ${new Date().toLocaleString()}
       setLoginIdentifier('');
       setPassword('');
       
+      addDebugLog('Login completed successfully');
+      
     } catch (error: any) {
       console.error('Login error:', error);
+      addDebugLog(`Login error: ${error.code} - ${error.message}`);
       
       let errorMessage = 'Login failed. Please try again.';
       
@@ -269,38 +275,50 @@ Generated on: ${new Date().toLocaleString()}
       setErrors({ general: errorMessage });
     } finally {
       setLoading(false);
+      addDebugLog('Login process finished, loading=false');
     }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    addDebugLog('✨ Signup button clicked');
     
-    if (!validateSignupForm()) return;
+    if (!validateSignupForm()) {
+      addDebugLog('Signup validation failed');
+      return;
+    }
     
     try {
       setLoading(true);
+      addDebugLog('Starting signup process...');
       setErrors({});
       
       // Check if username already exists
+      addDebugLog(`Checking if username exists: ${username}`);
       const existingUserByUsername = await findUserByUsername(username);
       if (existingUserByUsername) {
+        addDebugLog(`Username already taken: ${username}`);
         showToast('Username already taken. Please choose another.', 'error');
         return;
       }
       
       // Check if email already exists
+      addDebugLog(`Checking if email exists: ${email}`);
       const existingUserByEmail = await findUserByEmail(email);
       if (existingUserByEmail) {
+        addDebugLog(`Email already registered: ${email}`);
         showToast('Email already registered. Please login instead.', 'error');
         return;
       }
       
+      addDebugLog('Creating Firebase auth user...');
       // Create Firebase Auth user
       const userCredential = await createUserWithEmailAndPassword(
         auth, 
         email.trim().toLowerCase(), 
         password
       );
+      addDebugLog(`Firebase user created: ${userCredential.user.uid}`);
       
       // Generate secure authentication key
       const securityKey = generateSecureAuthKey();
@@ -326,19 +344,25 @@ Generated on: ${new Date().toLocaleString()}
         createdAt: serverTimestamp()
       };
 
+      addDebugLog('Saving user to Firestore...');
       // Save user document to Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
+      addDebugLog('User saved to Firestore');
       
       // Sign out from Firebase Auth (IMPORTANT: Don't auto login)
+      addDebugLog('Signing out from Firebase...');
       await auth.signOut();
       
       // Set generated key
+      addDebugLog(`Setting generated auth key: ${securityKey.substring(0, 15)}...`);
       setGeneratedAuthKey(securityKey);
       
       showToast('Account created successfully! Save your authentication key.', 'success');
+      addDebugLog('Signup completed, showing auth key');
       
     } catch (error: any) {
       console.error('Signup error:', error);
+      addDebugLog(`Signup error: ${error.code} - ${error.message}`);
       
       let errorMessage = 'Signup failed. Please try again.';
       
@@ -366,10 +390,12 @@ Generated on: ${new Date().toLocaleString()}
       setErrors({ general: errorMessage });
     } finally {
       setLoading(false);
+      addDebugLog('Signup process finished, loading=false');
     }
   };
 
   const handleContinueToLogin = () => {
+    addDebugLog('Continuing to login after saving auth key');
     // Clear signup form
     setUsername('');
     setEmail('');
@@ -384,6 +410,7 @@ Generated on: ${new Date().toLocaleString()}
 
   const handleRecoverWithAuthKey = async (e: React.FormEvent) => {
     e.preventDefault();
+    addDebugLog('🔑 Recover account button clicked');
     
     if (!authKey.trim()) {
       showToast('Please enter your authentication key', 'error');
@@ -397,21 +424,26 @@ Generated on: ${new Date().toLocaleString()}
     
     try {
       setLoading(true);
+      addDebugLog(`Recovering account for username: ${recoverUsername}`);
       
       // Find user by username
       const userData = await findUserByUsername(recoverUsername);
       
       if (!userData) {
+        addDebugLog(`Username not found: ${recoverUsername}`);
         showToast('Username not found. Please check and try again.', 'error');
         return;
       }
       
+      addDebugLog(`User found, checking auth key...`);
       // Verify authentication key
       if (userData.securityKey !== authKey.trim()) {
+        addDebugLog('Authentication key mismatch');
         showToast('Invalid authentication key. Please check and try again.', 'error');
         return;
       }
       
+      addDebugLog('Authentication key verified successfully');
       // Key matches! Show account details
       const accountDetails = `
 Account Recovery Successful!
@@ -434,6 +466,7 @@ Please login with your username and password.
       
     } catch (error: any) {
       console.error('Recovery error:', error);
+      addDebugLog(`Recovery error: ${error}`);
       showToast('Recovery failed. Please try again.', 'error');
     } finally {
       setLoading(false);
@@ -441,6 +474,7 @@ Please login with your username and password.
   };
 
   const handleSubmit = (e: React.FormEvent) => {
+    addDebugLog(`Form submitted for tab: ${activeTab}`);
     if (activeTab === 'login') return handleLogin(e);
     if (activeTab === 'signup' && !generatedAuthKey) return handleSignup(e);
     if (activeTab === 'recover') return handleRecoverWithAuthKey(e);
@@ -455,6 +489,26 @@ Please login with your username and password.
             REEL<span className="text-cyan-400">EARN</span>
           </h1>
           <p className="text-slate-400 text-sm">Earn by creating viral content</p>
+        </div>
+
+        {/* DEBUG PANEL - Remove in production */}
+        <div className="mb-4 p-3 bg-gray-900/80 border border-gray-700 rounded-lg">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-yellow-400 text-xs font-bold">🔧 DEBUG MODE</span>
+            <button 
+              onClick={() => setDebugLogs([])}
+              className="text-gray-400 text-xs hover:text-white"
+            >
+              Clear Logs
+            </button>
+          </div>
+          <div className="max-h-32 overflow-y-auto">
+            {debugLogs.map((log, index) => (
+              <div key={index} className="text-gray-400 text-xs font-mono mb-1">
+                {log}
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Auth Card */}
@@ -503,12 +557,6 @@ Please login with your username and password.
                       className="text-emerald-400 hover:text-emerald-300 text-xs px-3 py-1 bg-emerald-500/10 rounded-lg"
                     >
                       📋 Copy
-                    </button>
-                    <button
-                      onClick={() => downloadKeyAsFile(generatedAuthKey, username, email)}
-                      className="text-emerald-400 hover:text-emerald-300 text-xs px-3 py-1 bg-emerald-500/10 rounded-lg"
-                    >
-                      💾 Save as File
                     </button>
                   </div>
                 </div>
@@ -805,18 +853,18 @@ Please login with your username and password.
         {/* Firebase Status */}
         <div className="mt-6 p-4 bg-slate-900/50 border border-slate-700/50 rounded-xl">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-slate-400 text-xs font-semibold">SECURITY SYSTEM</span>
+            <span className="text-slate-400 text-xs font-semibold">SYSTEM STATUS</span>
             <span className="text-green-400 text-xs font-semibold flex items-center">
               <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-              AUTH-KEY PROTECTION ENABLED
+              DEBUG MODE ACTIVE
             </span>
           </div>
           <p className="text-slate-500 text-xs">
+            • Check console for debug logs (F12)
+            <br />
             • Login with Username or Email
             <br />
             • Authentication Key Recovery System
-            <br />
-            • No Email Dependencies
           </p>
         </div>
       </div>
