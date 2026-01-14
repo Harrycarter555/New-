@@ -21,6 +21,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   const [confirmPassword, setConfirmPassword] = useState('');
   const [authKey, setAuthKey] = useState('');
   const [generatedAuthKey, setGeneratedAuthKey] = useState('');
+  const [newUserData, setNewUserData] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -44,14 +45,47 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   // Copy to clipboard
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
-      .then(() => showToast('Authentication key copied!', 'success'))
+      .then(() => showToast('Authentication key copied to clipboard!', 'success'))
       .catch(() => showToast('Failed to copy', 'error'));
+  };
+
+  // Save key as text file
+  const downloadKeyAsFile = (key: string, username: string) => {
+    const content = `=== REEL EARN AUTHENTICATION KEY ===
+
+Username: ${username}
+Email: ${email}
+Authentication Key: ${key}
+
+=== IMPORTANT SECURITY NOTES ===
+
+1. NEVER share this key with anyone
+2. Store this key in a secure place
+3. You will need this key to recover your account
+4. This key cannot be recovered if lost
+
+Generated on: ${new Date().toLocaleString()}
+
+=== END OF KEY ===`;
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reelEarn_auth_key_${username}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // Clear errors when switching tabs
   useEffect(() => {
     setErrors({});
-    setGeneratedAuthKey('');
+    if (activeTab !== 'signup') {
+      setGeneratedAuthKey('');
+      setNewUserData(null);
+    }
   }, [activeTab]);
 
   const validateLoginForm = (): boolean => {
@@ -144,7 +178,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         // Update last login timestamp
         await setDoc(doc(db, 'users', userCredential.user.uid), {
           lastLoginAt: serverTimestamp(),
-          failedAttempts: 0, // Reset failed attempts on successful login
+          failedAttempts: 0,
           lockoutUntil: null
         }, { merge: true });
         
@@ -153,7 +187,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         showToast(`Welcome back, ${safeUserData.username}!`, 'success');
       } else {
         showToast('Account setup incomplete. Please contact support.', 'error');
-        await auth.signOut(); // Sign out from Firebase Auth if no user doc
+        await auth.signOut();
       }
     } catch (error: any) {
       console.error('Login error:', error);
@@ -208,7 +242,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       
       // Generate secure authentication key
       const securityKey = generateSecureAuthKey();
-      setGeneratedAuthKey(securityKey);
       
       const newUser = {
         id: userCredential.user.uid,
@@ -221,7 +254,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         totalEarnings: 0,
         joinedAt: Date.now(),
         readBroadcastIds: [],
-        securityKey, // Store the key in database
+        securityKey,
         savedSocialUsername: '',
         payoutMethod: {},
         payoutDetails: {},
@@ -234,8 +267,14 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       // Save user document to Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
       
-      // Show success message with authentication key
-      showToast('Account created successfully!', 'success');
+      // Set generated key and user data BUT DON'T LOGIN AUTOMATICALLY
+      setGeneratedAuthKey(securityKey);
+      setNewUserData(newUser);
+      
+      // Sign out from Firebase Auth temporarily
+      await auth.signOut();
+      
+      showToast('Account created successfully! Save your authentication key.', 'success');
       
     } catch (error: any) {
       console.error('Signup error:', error);
@@ -269,6 +308,20 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     }
   };
 
+  const handleContinueToLogin = () => {
+    // Clear signup form
+    setUsername('');
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setGeneratedAuthKey('');
+    setNewUserData(null);
+    
+    // Switch to login tab
+    setActiveTab('login');
+    showToast('Please login with your new credentials', 'info');
+  };
+
   const handleRecoverWithAuthKey = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -285,51 +338,25 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     try {
       setLoading(true);
       
-      // Find user by email first
+      // First, try to find user by email
       let userFound = false;
+      let userCredentials = null;
       
       try {
-        // Sign in to get user UID
-        const userCredential = await signInWithEmailAndPassword(auth, email.trim(), 'temporary');
-        const userId = userCredential.user.uid;
-        
-        // Get user document
-        const userDoc = await getDoc(doc(db, 'users', userId));
-        
-        if (userDoc.exists()) {
-          const userData = userDoc.data() as User;
-          
-          // Verify authentication key
-          if (userData.securityKey === authKey.trim()) {
-            // Key matches! Show user credentials
-            showToast(`Authentication successful! Username: ${userData.username}`, 'success');
-            
-            // Ask user to set new password
-            const newPassword = prompt('Enter new password (min 6 characters):');
-            if (newPassword && newPassword.length >= 6) {
-              // Update password in Firebase Auth
-              await updateDoc(doc(db, 'users', userId), {
-                securityKey: generateSecureAuthKey() // Generate new key after recovery
-              });
-              
-              // Note: Firebase Auth password update requires re-authentication
-              // For now, show current credentials
-              alert(`Account Recovery Successful!\n\nUsername: ${userData.username}\nEmail: ${userData.email}\n\nPlease login with your credentials.`);
-              
-              setActiveTab('login');
-              setAuthKey('');
-            }
-            userFound = true;
-          }
+        // Try to sign in with dummy password to get user ID
+        userCredentials = await signInWithEmailAndPassword(auth, email.trim(), 'dummy_password_wrong');
+      } catch (authError: any) {
+        // We expect auth error, but we might get user-not-found
+        if (authError.code === 'auth/user-not-found') {
+          showToast('No account found with this email', 'error');
+          return;
         }
-      } catch (error) {
-        // Expected error - wrong password
+        // For wrong password error, continue to check auth key
       }
       
-      if (!userFound) {
-        // Search by authentication key in all users (Admin function needed)
-        showToast('Authentication key not found or invalid', 'error');
-      }
+      // Alternative: We need to query Firestore directly
+      // Since we can't query by email without index, we'll show a message
+      showToast('Please contact support with your authentication key', 'info');
       
     } catch (error: any) {
       console.error('Recovery error:', error);
@@ -341,7 +368,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 
   const handleSubmit = (e: React.FormEvent) => {
     if (activeTab === 'login') return handleLogin(e);
-    if (activeTab === 'signup') return handleSignup(e);
+    if (activeTab === 'signup' && !generatedAuthKey) return handleSignup(e);
     if (activeTab === 'recover') return handleRecoverWithAuthKey(e);
   };
 
@@ -358,240 +385,276 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 
         {/* Auth Card */}
         <div className="bg-slate-900/70 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-6 md:p-8 shadow-2xl">
-          {/* Tabs */}
-          <div className="flex mb-6 bg-slate-800/50 p-1 rounded-xl">
-            <button
-              onClick={() => setActiveTab('login')}
-              className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all ${
-                activeTab === 'login' 
-                  ? 'bg-cyan-500 text-white shadow-lg' 
-                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-              }`}
-            >
-              LOGIN
-            </button>
-            <button
-              onClick={() => setActiveTab('signup')}
-              className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all ${
-                activeTab === 'signup' 
-                  ? 'bg-cyan-500 text-white shadow-lg' 
-                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-              }`}
-            >
-              SIGN UP
-            </button>
-          </div>
+          {/* Tabs - Only show if not showing auth key */}
+          {!generatedAuthKey && (
+            <div className="flex mb-6 bg-slate-800/50 p-1 rounded-xl">
+              <button
+                onClick={() => setActiveTab('login')}
+                className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all ${
+                  activeTab === 'login' 
+                    ? 'bg-cyan-500 text-white shadow-lg' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                }`}
+              >
+                LOGIN
+              </button>
+              <button
+                onClick={() => setActiveTab('signup')}
+                className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-all ${
+                  activeTab === 'signup' 
+                    ? 'bg-cyan-500 text-white shadow-lg' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                }`}
+              >
+                SIGN UP
+              </button>
+            </div>
+          )}
 
-          {/* Show Generated Authentication Key */}
+          {/* SHOW AUTHENTICATION KEY AFTER SIGNUP */}
           {generatedAuthKey && (
-            <div className="mb-6 p-4 bg-emerald-900/30 border border-emerald-500/30 rounded-xl">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-emerald-400 text-sm font-bold">⚠️ SECURE YOUR ACCOUNT</span>
-                <button
-                  onClick={() => copyToClipboard(generatedAuthKey)}
-                  className="text-emerald-400 hover:text-emerald-300 text-xs"
-                >
-                  📋 Copy
-                </button>
-              </div>
-              <p className="text-emerald-300 text-xs mb-2">
-                Save this authentication key securely! You'll need it to recover your account.
-              </p>
-              <div className="bg-black/50 p-3 rounded-lg border border-emerald-500/20">
-                <code className="text-emerald-400 text-sm font-mono break-all">
-                  {generatedAuthKey}
-                </code>
-              </div>
-              <p className="text-emerald-400 text-xs mt-2">
-                🔒 Store this key safely. Never share it with anyone!
-              </p>
-              <div className="mt-3">
-                <button
-                  onClick={() => {
-                    setGeneratedAuthKey('');
-                    setActiveTab('login');
-                  }}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg font-medium"
-                >
-                  I've Saved My Key - Continue to Login
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Error Message */}
-          {errors.general && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-              <p className="text-red-400 text-sm">{errors.general}</p>
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleSubmit}>
-            {activeTab === 'signup' && (
-              <div className="mb-4">
-                <label className="block text-slate-400 text-sm mb-2 font-medium">
-                  Username
-                </label>
-                <input
-                  type="text"
-                  placeholder="Choose a username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                  required
-                  disabled={loading || !!generatedAuthKey}
-                />
-              </div>
-            )}
-
-            <div className="mb-4">
-              <label className="block text-slate-400 text-sm mb-2 font-medium">
-                Email Address
-              </label>
-              <input
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                required
-                disabled={loading || !!generatedAuthKey}
-              />
-            </div>
-
-            {activeTab !== 'recover' && (
-              <>
-                <div className="mb-4">
-                  <label className="block text-slate-400 text-sm mb-2 font-medium">
-                    Password
-                  </label>
-                  <input
-                    type="password"
-                    placeholder={activeTab === 'signup' ? "Create a password (min 6 chars)" : "Enter your password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                    required
-                    disabled={loading || !!generatedAuthKey}
-                  />
+            <div className="mb-6">
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-3xl">🔐</span>
                 </div>
+                <h2 className="text-2xl font-bold text-white mb-2">Account Created Successfully!</h2>
+                <p className="text-slate-400">Save your authentication key securely</p>
+              </div>
 
+              <div className="mb-6 p-4 bg-emerald-900/20 border-2 border-emerald-500/40 rounded-xl">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-emerald-400 text-sm font-bold">YOUR AUTHENTICATION KEY</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => copyToClipboard(generatedAuthKey)}
+                      className="text-emerald-400 hover:text-emerald-300 text-xs px-3 py-1 bg-emerald-500/10 rounded-lg"
+                    >
+                      📋 Copy
+                    </button>
+                    <button
+                      onClick={() => downloadKeyAsFile(generatedAuthKey, username)}
+                      className="text-emerald-400 hover:text-emerald-300 text-xs px-3 py-1 bg-emerald-500/10 rounded-lg"
+                    >
+                      💾 Save as File
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="bg-black/60 p-4 rounded-lg border border-emerald-500/30 mb-3">
+                  <code className="text-emerald-300 text-sm font-mono break-all select-all">
+                    {generatedAuthKey}
+                  </code>
+                </div>
+                
+                <div className="flex items-start p-3 bg-amber-900/20 rounded-lg">
+                  <span className="text-amber-400 mr-2">⚠️</span>
+                  <div>
+                    <p className="text-amber-300 text-xs font-bold mb-1">IMPORTANT SECURITY WARNING</p>
+                    <p className="text-amber-400 text-xs">
+                      • Save this key in a secure location (password manager, encrypted file)
+                      <br />
+                      • Never share this key with anyone
+                      <br />
+                      • You will need this key to recover your account
+                      <br />
+                      • This key cannot be recovered if lost
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Account Details */}
+              <div className="mb-6 p-4 bg-slate-800/50 rounded-xl">
+                <h3 className="text-slate-300 font-bold mb-3">Your Account Details</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Username:</span>
+                    <span className="text-white font-medium">{username}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Email:</span>
+                    <span className="text-white font-medium">{email}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Starting Balance:</span>
+                    <span className="text-emerald-400 font-bold">₹100</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Continue Button */}
+              <button
+                onClick={handleContinueToLogin}
+                className="w-full bg-gradient-to-r from-emerald-500 to-green-600 text-white font-bold py-3.5 rounded-lg hover:opacity-90 transition-all duration-300 shadow-lg hover:shadow-emerald-500/20"
+              >
+                ✅ I'VE SAVED MY KEY - CONTINUE TO LOGIN
+              </button>
+
+              <p className="text-center text-slate-500 text-xs mt-4">
+                Once you save the key, click above to login with your new account
+              </p>
+            </div>
+          )}
+
+          {/* REGULAR LOGIN/SIGNUP FORM (when no auth key shown) */}
+          {!generatedAuthKey && (
+            <>
+              {/* Error Message */}
+              {errors.general && (
+                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <p className="text-red-400 text-sm">{errors.general}</p>
+                </div>
+              )}
+
+              {/* Form */}
+              <form onSubmit={handleSubmit}>
                 {activeTab === 'signup' && (
-                  <div className="mb-6">
+                  <div className="mb-4">
                     <label className="block text-slate-400 text-sm mb-2 font-medium">
-                      Confirm Password
+                      Username
                     </label>
                     <input
-                      type="password"
-                      placeholder="Confirm your password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      type="text"
+                      placeholder="Choose a username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
                       className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
                       required
-                      disabled={loading || !!generatedAuthKey}
+                      disabled={loading}
                     />
                   </div>
                 )}
-              </>
-            )}
 
-            {activeTab === 'recover' && (
-              <div className="mb-6">
-                <label className="block text-slate-400 text-sm mb-2 font-medium">
-                  Authentication Key
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter your authentication key"
-                  value={authKey}
-                  onChange={(e) => setAuthKey(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-amber-500/50 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-colors"
-                  required
+                <div className="mb-4">
+                  <label className="block text-slate-400 text-sm mb-2 font-medium">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="your@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                    required
+                    disabled={loading}
+                  />
+                </div>
+
+                {activeTab !== 'recover' && (
+                  <>
+                    <div className="mb-4">
+                      <label className="block text-slate-400 text-sm mb-2 font-medium">
+                        Password
+                      </label>
+                      <input
+                        type="password"
+                        placeholder={activeTab === 'signup' ? "Create a password (min 6 chars)" : "Enter your password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                        required
+                        disabled={loading}
+                      />
+                    </div>
+
+                    {activeTab === 'signup' && (
+                      <div className="mb-6">
+                        <label className="block text-slate-400 text-sm mb-2 font-medium">
+                          Confirm Password
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Confirm your password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                          required
+                          disabled={loading}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Forgot Password / Recover Account Link */}
+                {activeTab === 'login' && (
+                  <div className="mb-6 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('recover')}
+                      className="text-cyan-400 hover:text-cyan-300 text-sm font-medium transition-colors"
+                      disabled={loading}
+                    >
+                      🔐 Lost Account? Use Authentication Key
+                    </button>
+                  </div>
+                )}
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
                   disabled={loading}
-                />
-                <p className="text-amber-400 text-xs mt-2">
-                  Enter the authentication key you received during signup
+                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold py-3.5 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-cyan-500/20"
+                >
+                  {loading ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      {activeTab === 'recover' ? 'VERIFYING...' : 'PROCESSING...'}
+                    </span>
+                  ) : (
+                    <span>
+                      {activeTab === 'login' && '🔐 LOGIN'}
+                      {activeTab === 'signup' && '✨ CREATE ACCOUNT'}
+                      {activeTab === 'recover' && '🔑 RECOVER ACCOUNT'}
+                    </span>
+                  )}
+                </button>
+              </form>
+
+              {/* Switch Auth Mode */}
+              <div className="mt-6 text-center">
+                <p className="text-slate-500 text-sm">
+                  {activeTab === 'login' && "Don't have an account? "}
+                  {activeTab === 'signup' && "Already have an account? "}
+                  {activeTab === 'recover' && "Remember your password? "}
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextTab = activeTab === 'login' ? 'signup' : 
+                                    activeTab === 'signup' ? 'login' : 'login';
+                      setActiveTab(nextTab);
+                      setErrors({});
+                    }}
+                    className="text-cyan-400 hover:text-cyan-300 font-semibold ml-1 transition-colors"
+                    disabled={loading}
+                  >
+                    {activeTab === 'login' && 'Sign Up'}
+                    {activeTab === 'signup' && 'Login'}
+                    {activeTab === 'recover' && 'Back to Login'}
+                  </button>
                 </p>
               </div>
-            )}
 
-            {/* Forgot Password / Recover Account Link */}
-            {activeTab === 'login' && (
-              <div className="mb-6 text-right">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('recover')}
-                  className="text-cyan-400 hover:text-cyan-300 text-sm font-medium transition-colors"
-                  disabled={loading}
-                >
-                  🔐 Lost Password? Use Authentication Key
-                </button>
-              </div>
-            )}
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading || !!generatedAuthKey}
-              className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold py-3.5 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-cyan-500/20"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  {activeTab === 'recover' ? 'VERIFYING...' : 'PROCESSING...'}
-                </span>
-              ) : (
-                <span>
-                  {activeTab === 'login' && '🔐 LOGIN'}
-                  {activeTab === 'signup' && '✨ CREATE ACCOUNT'}
-                  {activeTab === 'recover' && '🔑 RECOVER ACCOUNT'}
-                </span>
+              {/* Security Information */}
+              {activeTab === 'signup' && (
+                <div className="mt-6 p-4 bg-amber-900/20 border border-amber-700/30 rounded-xl">
+                  <div className="flex items-start mb-2">
+                    <span className="text-amber-400 mr-2">🔒</span>
+                    <span className="text-amber-400 text-sm font-bold">IMPORTANT SECURITY NOTE</span>
+                  </div>
+                  <p className="text-amber-300 text-xs">
+                    After signup, you'll receive a unique authentication key. 
+                    <span className="font-bold"> Save it securely!</span> You'll need this key 
+                    to recover your account if you forget your password.
+                  </p>
+                </div>
               )}
-            </button>
-          </form>
-
-          {/* Switch Auth Mode */}
-          <div className="mt-6 text-center">
-            <p className="text-slate-500 text-sm">
-              {activeTab === 'login' && "Don't have an account? "}
-              {activeTab === 'signup' && "Already have an account? "}
-              {activeTab === 'recover' && "Remember your password? "}
-              
-              <button
-                type="button"
-                onClick={() => {
-                  const nextTab = activeTab === 'login' ? 'signup' : 
-                                activeTab === 'signup' ? 'login' : 'login';
-                  setActiveTab(nextTab);
-                  setErrors({});
-                }}
-                className="text-cyan-400 hover:text-cyan-300 font-semibold ml-1 transition-colors"
-                disabled={loading || !!generatedAuthKey}
-              >
-                {activeTab === 'login' && 'Sign Up'}
-                {activeTab === 'signup' && 'Login'}
-                {activeTab === 'recover' && 'Back to Login'}
-              </button>
-            </p>
-          </div>
-
-          {/* Security Information */}
-          {activeTab === 'signup' && !generatedAuthKey && (
-            <div className="mt-6 p-4 bg-amber-900/20 border border-amber-700/30 rounded-xl">
-              <div className="flex items-start mb-2">
-                <span className="text-amber-400 mr-2">🔒</span>
-                <span className="text-amber-400 text-sm font-bold">IMPORTANT SECURITY NOTE</span>
-              </div>
-              <p className="text-amber-300 text-xs">
-                After signup, you'll receive a unique authentication key. 
-                <span className="font-bold"> Save it securely!</span> You'll need this key 
-                to recover your account if you forget your password.
-              </p>
-            </div>
+            </>
           )}
         </div>
 
