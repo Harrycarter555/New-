@@ -21,8 +21,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   const [confirmPassword, setConfirmPassword] = useState('');
   const [authKey, setAuthKey] = useState('');
   const [generatedAuthKey, setGeneratedAuthKey] = useState('');
-  const [loginIdentifier, setLoginIdentifier] = useState(''); // Username or email for login
-  const [recoverUsername, setRecoverUsername] = useState(''); // Username for recovery
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [recoverUsername, setRecoverUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -32,12 +32,10 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     const specialSuffix = 'RE-';
     let key = specialSuffix;
     
-    // Generate 12 random characters
     for (let i = 0; i < 12; i++) {
       key += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     
-    // Add timestamp for uniqueness
     key += '-' + Date.now().toString(36).toUpperCase();
     
     return key;
@@ -331,6 +329,9 @@ Generated on: ${new Date().toLocaleString()}
       // Save user document to Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
       
+      // Sign out from Firebase Auth (IMPORTANT: Don't auto login)
+      await auth.signOut();
+      
       // Set generated key
       setGeneratedAuthKey(securityKey);
       
@@ -412,9 +413,6 @@ Generated on: ${new Date().toLocaleString()}
       }
       
       // Key matches! Show account details
-      showToast(`Authentication successful! Username: ${userData.username}`, 'success');
-      
-      // Show account details
       const accountDetails = `
 Account Recovery Successful!
 
@@ -432,6 +430,7 @@ Please login with your username and password.
       setRecoverUsername('');
       setAuthKey('');
       setActiveTab('login');
+      showToast('Please login with your credentials', 'success');
       
     } catch (error: any) {
       console.error('Recovery error:', error);
@@ -460,8 +459,9 @@ Please login with your username and password.
 
         {/* Auth Card */}
         <div className="bg-slate-900/70 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-6 md:p-8 shadow-2xl">
-          {/* Tabs - Only show if not showing auth key */}
-          {!generatedAuthKey && (
+          
+          {/* ONLY SHOW TABS WHEN NOT SHOWING AUTH KEY */}
+          {!generatedAuthKey ? (
             <div className="flex mb-6 bg-slate-800/50 p-1 rounded-xl">
               <button
                 onClick={() => setActiveTab('login')}
@@ -484,19 +484,16 @@ Please login with your username and password.
                 SIGN UP
               </button>
             </div>
+          ) : (
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-bold text-white">🔐 Account Created</h2>
+              <p className="text-slate-400 text-sm">Save your authentication key</p>
+            </div>
           )}
 
           {/* SHOW AUTHENTICATION KEY AFTER SIGNUP */}
-          {generatedAuthKey && (
+          {generatedAuthKey ? (
             <div className="mb-6">
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <span className="text-3xl">🔐</span>
-                </div>
-                <h2 className="text-2xl font-bold text-white mb-2">Account Created Successfully!</h2>
-                <p className="text-slate-400">Save your authentication key securely</p>
-              </div>
-
               <div className="mb-6 p-4 bg-emerald-900/20 border-2 border-emerald-500/40 rounded-xl">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-emerald-400 text-sm font-bold">YOUR AUTHENTICATION KEY</span>
@@ -527,7 +524,7 @@ Please login with your username and password.
                   <div>
                     <p className="text-amber-300 text-xs font-bold mb-1">IMPORTANT SECURITY WARNING</p>
                     <p className="text-amber-400 text-xs">
-                      • Save this key in a secure location (password manager, encrypted file)
+                      • Save this key in a secure location
                       <br />
                       • Never share this key with anyone
                       <br />
@@ -570,10 +567,8 @@ Please login with your username and password.
                 Once you save the key, click above to login with your new account
               </p>
             </div>
-          )}
-
-          {/* REGULAR LOGIN/SIGNUP FORM (when no auth key shown) */}
-          {!generatedAuthKey && (
+          ) : (
+            /* REGULAR LOGIN/SIGNUP/RECOVER FORM */
             <>
               {/* Error Message */}
               {errors.general && (
@@ -605,120 +600,123 @@ Please login with your username and password.
                 )}
 
                 {activeTab === 'signup' && (
-                  <div className="mb-4">
-                    <label className="block text-slate-400 text-sm mb-2 font-medium">
-                      Username
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Choose a username"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                      required
-                      disabled={loading}
-                    />
-                    {errors.username && (
-                      <p className="text-red-400 text-xs mt-1">{errors.username}</p>
-                    )}
-                  </div>
-                )}
+                  <>
+                    <div className="mb-4">
+                      <label className="block text-slate-400 text-sm mb-2 font-medium">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Choose a username"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                        required
+                        disabled={loading}
+                      />
+                      {errors.username && (
+                        <p className="text-red-400 text-xs mt-1">{errors.username}</p>
+                      )}
+                    </div>
 
-                {activeTab === 'signup' && (
-                  <div className="mb-4">
-                    <label className="block text-slate-400 text-sm mb-2 font-medium">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      placeholder="your@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                      required
-                      disabled={loading}
-                    />
-                    {errors.email && (
-                      <p className="text-red-400 text-xs mt-1">{errors.email}</p>
-                    )}
-                  </div>
-                )}
-
-                {activeTab === 'recover' && (
-                  <div className="mb-4">
-                    <label className="block text-slate-400 text-sm mb-2 font-medium">
-                      Username
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Enter your username"
-                      value={recoverUsername}
-                      onChange={(e) => setRecoverUsername(e.target.value)}
-                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                      required
-                      disabled={loading}
-                    />
-                  </div>
-                )}
-
-                {activeTab !== 'recover' && (
-                  <div className="mb-4">
-                    <label className="block text-slate-400 text-sm mb-2 font-medium">
-                      Password
-                    </label>
-                    <input
-                      type="password"
-                      placeholder={activeTab === 'signup' ? "Create a password (min 6 chars)" : "Enter your password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                      required
-                      disabled={loading}
-                    />
-                    {errors.password && (
-                      <p className="text-red-400 text-xs mt-1">{errors.password}</p>
-                    )}
-                  </div>
-                )}
-
-                {activeTab === 'signup' && (
-                  <div className="mb-6">
-                    <label className="block text-slate-400 text-sm mb-2 font-medium">
-                      Confirm Password
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="Confirm your password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                      required
-                      disabled={loading}
-                    />
-                    {errors.confirmPassword && (
-                      <p className="text-red-400 text-xs mt-1">{errors.confirmPassword}</p>
-                    )}
-                  </div>
+                    <div className="mb-4">
+                      <label className="block text-slate-400 text-sm mb-2 font-medium">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        placeholder="your@email.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                        required
+                        disabled={loading}
+                      />
+                      {errors.email && (
+                        <p className="text-red-400 text-xs mt-1">{errors.email}</p>
+                      )}
+                    </div>
+                  </>
                 )}
 
                 {activeTab === 'recover' && (
-                  <div className="mb-6">
-                    <label className="block text-slate-400 text-sm mb-2 font-medium">
-                      Authentication Key
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Enter your authentication key"
-                      value={authKey}
-                      onChange={(e) => setAuthKey(e.target.value)}
-                      className="w-full bg-slate-800/50 border border-amber-500/50 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-colors"
-                      required
-                      disabled={loading}
-                    />
-                    <p className="text-amber-400 text-xs mt-2">
-                      Enter the authentication key you received during signup
-                    </p>
-                  </div>
+                  <>
+                    <div className="mb-4">
+                      <label className="block text-slate-400 text-sm mb-2 font-medium">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Enter your username"
+                        value={recoverUsername}
+                        onChange={(e) => setRecoverUsername(e.target.value)}
+                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                        required
+                        disabled={loading}
+                      />
+                    </div>
+
+                    <div className="mb-4">
+                      <label className="block text-slate-400 text-sm mb-2 font-medium">
+                        Authentication Key
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Enter your authentication key"
+                        value={authKey}
+                        onChange={(e) => setAuthKey(e.target.value)}
+                        className="w-full bg-slate-800/50 border border-amber-500/50 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-colors"
+                        required
+                        disabled={loading}
+                      />
+                      <p className="text-amber-400 text-xs mt-2">
+                        Enter the authentication key you received during signup
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {/* Password Fields for Login and Signup */}
+                {(activeTab === 'login' || activeTab === 'signup') && (
+                  <>
+                    <div className="mb-4">
+                      <label className="block text-slate-400 text-sm mb-2 font-medium">
+                        Password
+                      </label>
+                      <input
+                        type="password"
+                        placeholder={activeTab === 'signup' ? "Create a password (min 6 chars)" : "Enter your password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                        required
+                        disabled={loading}
+                      />
+                      {errors.password && (
+                        <p className="text-red-400 text-xs mt-1">{errors.password}</p>
+                      )}
+                    </div>
+
+                    {activeTab === 'signup' && (
+                      <div className="mb-6">
+                        <label className="block text-slate-400 text-sm mb-2 font-medium">
+                          Confirm Password
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Confirm your password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 transition-colors"
+                          required
+                          disabled={loading}
+                        />
+                        {errors.confirmPassword && (
+                          <p className="text-red-400 text-xs mt-1">{errors.confirmPassword}</p>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Forgot Password / Recover Account Link */}
@@ -786,7 +784,7 @@ Please login with your username and password.
                 </p>
               </div>
 
-              {/* Security Information */}
+              {/* Security Information for Signup */}
               {activeTab === 'signup' && (
                 <div className="mt-6 p-4 bg-amber-900/20 border border-amber-700/30 rounded-xl">
                   <div className="flex items-start mb-2">
