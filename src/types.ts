@@ -1,6 +1,6 @@
 // src/types.ts
 // ────────────────────────────────────────────────
-// Enums (consistent naming)
+// ENUMS
 export enum UserRole {
   ADMIN = 'admin',
   USER = 'user',
@@ -32,11 +32,11 @@ export enum Platform {
 }
 
 // ────────────────────────────────────────────────
-// User Interface
+// MAIN INTERFACES
 export interface User {
   id: string;
   username: string;
-  password?: string;              // Optional - security reasons
+  password?: string;
   email?: string;
   role: UserRole;
   status: UserStatus;
@@ -45,16 +45,14 @@ export interface User {
   totalEarnings: number;
   joinedAt: number;
   readBroadcastIds: string[];
-  securityKey: string;            // Required recovery key
-  failedAttempts?: number;        // Login attempts tracking
-  lockoutUntil?: number;          // Timestamp for lockout end
-  savedSocialUsername?: string;   // e.g., "instagram.com/@username"
+  securityKey: string;
+  failedAttempts?: number;
+  lockoutUntil?: number;
+  savedSocialUsername?: string;
   payoutMethod?: 'UPI' | 'BANK' | 'USDT' | string;
-  payoutDetails?: string;         // UPI ID, Bank Account, Wallet Address
+  payoutDetails?: string;
 }
 
-// ────────────────────────────────────────────────
-// Campaign Interface
 export interface Campaign {
   id: string;
   title: string;
@@ -69,11 +67,9 @@ export interface Campaign {
   viralPay: number;
   active: boolean;
   bioLink: string;
-  createdAt?: number;             // Added from second block
+  createdAt?: number;
 }
 
-// ────────────────────────────────────────────────
-// Submission Interface
 export interface Submission {
   id: string;
   userId: string;
@@ -88,12 +84,10 @@ export interface Submission {
   isViralBonus?: boolean;
   rejectionReason?: string;
   externalLink: string;
-  approvedAt?: number;            // Added from second block
-  rejectedAt?: number;            // Added from second block
+  approvedAt?: number;
+  rejectedAt?: number;
 }
 
-// ────────────────────────────────────────────────
-// Payout Request
 export interface PayoutRequest {
   id: string;
   userId: string;
@@ -102,12 +96,10 @@ export interface PayoutRequest {
   method: string;
   status: PayoutStatus;
   timestamp: number;
-  processedAt?: number;           // Added from second block
-  processedBy?: string;           // Added from second block
+  processedAt?: number;
+  processedBy?: string;
 }
 
-// ────────────────────────────────────────────────
-// Broadcast Message (Renamed from BroadcastMessage to match second block)
 export interface Broadcast {
   id: string;
   content: string;
@@ -116,8 +108,6 @@ export interface Broadcast {
   timestamp: number;
 }
 
-// ────────────────────────────────────────────────
-// User Report
 export interface UserReport {
   id: string;
   userId: string;
@@ -125,11 +115,9 @@ export interface UserReport {
   message: string;
   status: 'open' | 'resolved';
   timestamp: number;
-  resolvedAt?: number;            // Added from second block
+  resolvedAt?: number;
 }
 
-// ────────────────────────────────────────────────
-// App Log
 export interface AppLog {
   id: string;
   userId?: string;
@@ -139,8 +127,6 @@ export interface AppLog {
   timestamp: number;
 }
 
-// ────────────────────────────────────────────────
-// Cashflow Config
 export interface Cashflow {
   dailyLimit: number;
   todaySpent: number;
@@ -148,22 +134,151 @@ export interface Cashflow {
   endDate: string;
 }
 
-// ────────────────────────────────────────────────
-// App Config
 export interface AppConfig {
   minWithdrawal: number;
 }
 
-// ────────────────────────────────────────────────
-// Main App State
 export interface AppState {
   users: User[];
   campaigns: Campaign[];
   submissions: Submission[];
   payoutRequests: PayoutRequest[];
-  broadcasts: Broadcast[];        // Updated type name
+  broadcasts: Broadcast[];
   reports: UserReport[];
   cashflow: Cashflow;
   logs: AppLog[];
-  config: AppConfig;              // Updated to use AppConfig interface
+  config: AppConfig;
 }
+
+// ────────────────────────────────────────────────
+// ADMIN PANEL TYPES (from utils/types.ts)
+export type AdminTab = 
+  | 'dashboard' 
+  | 'members' 
+  | 'campaigns' 
+  | 'cashflow' 
+  | 'payouts' 
+  | 'reports' 
+  | 'broadcasts';
+
+export type PayoutSubTab = 'payouts' | 'verifications';
+
+export interface AdminPanelProps {
+  currentUser: User;
+  showToast: (message: string, type: 'success' | 'error') => void;
+}
+
+export interface AdminDashboardProps {
+  showToast: (message: string, type: 'success' | 'error') => void;
+}
+
+export interface AdminMembersProps {
+  users: User[];
+  showToast: (message: string, type: 'success' | 'error') => void;
+}
+
+export interface AdminCampaignsProps {
+  campaigns: Campaign[];
+  showToast: (message: string, type: 'success' | 'error') => void;
+  currentUser: User;
+}
+
+export interface AdminCashflowProps {
+  cashflow: { dailyLimit: number; todaySpent: number };
+  showToast: (message: string, type: 'success' | 'error') => void;
+}
+
+export interface AdminPayoutsProps {
+  payouts: PayoutRequest[];
+  submissions: Submission[];
+  showToast: (message: string, type: 'success' | 'error') => void;
+  payoutSubTab: PayoutSubTab;
+  setPayoutSubTab: (tab: PayoutSubTab) => void;
+}
+
+export interface AdminReportsProps {
+  reports: UserReport[];
+  showToast: (message: string, type: 'success' | 'error') => void;
+}
+
+export interface AdminBroadcastsProps {
+  broadcasts: Broadcast[];
+  showToast: (message: string, type: 'success' | 'error') => void;
+  currentUser: User;
+}
+
+export interface NewCampaignData {
+  title: string;
+  videoUrl: string;
+  thumbnailUrl: string;
+  caption: string;
+  hashtags: string;
+  audioName: string;
+  goalViews: number;
+  goalLikes: number;
+  basicPay: number;
+  viralPay: number;
+  bioLink: string;
+}
+
+export interface BroadcastData {
+  content: string;
+  targetUserId?: string;
+}
+
+export interface BalanceEditData {
+  amount: string;
+  type: 'add' | 'deduct';
+}
+
+export interface DashboardStats {
+  totalUsers: number;
+  activeUsers: number;
+  totalBalance: number;
+  totalPending: number;
+  totalEarnings: number;
+  pendingPayouts: number;
+  pendingPayoutsAmount: number;
+  openReports: number;
+  activeCampaigns: number;
+  pendingSubmissions: number;
+  pendingSubmissionsAmount: number;
+  cashflowRemaining: number;
+  pendingCashflow: number;
+  dailyLimit: number;
+  todaySpent: number;
+}
+
+export interface RealTimeUpdate {
+  type: 'users' | 'campaigns' | 'payouts' | 'submissions' | 'reports' | 'broadcasts' | 'cashflow';
+  data: any;
+  timestamp: number;
+}
+
+export type AdminAction = 
+  | 'user_status_update'
+  | 'user_balance_update'
+  | 'campaign_create'
+  | 'campaign_update'
+  | 'campaign_delete'
+  | 'payout_approve'
+  | 'payout_reject'
+  | 'submission_approve'
+  | 'submission_reject'
+  | 'report_resolve'
+  | 'report_delete'
+  | 'broadcast_send'
+  | 'cashflow_update';
+
+export interface AdminLog {
+  id: string;
+  adminId: string;
+  adminUsername: string;
+  action: AdminAction;
+  targetId?: string;
+  targetUsername?: string;
+  details: string;
+  timestamp: number;
+  ipAddress?: string;
+  userAgent?: string;
+  }
