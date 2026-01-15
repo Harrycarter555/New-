@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { payoutService, submissionService } from './firebaseService';
 import { ICONS } from '../../utils/constants';
-import { PayoutStatus, SubmissionStatus } from '../../src/types';
+import { PayoutStatus, SubmissionStatus } from '../../types';
 
 interface AdminPayoutsProps {
   payouts: any[];
