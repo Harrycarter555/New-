@@ -10,6 +10,12 @@ export type AdminTab =
   | 'reports' 
   | 'broadcasts';
 
+
+export enum UserRole { ADMIN = 'admin', USER = 'user' }
+export enum UserStatus { ACTIVE = 'active', SUSPENDED = 'suspended', BANNED = 'banned' }
+
+
+
 export type PayoutSubTab = 'payouts' | 'verifications';
 
 // Props Types
