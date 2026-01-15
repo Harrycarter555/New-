@@ -3,7 +3,17 @@ import {
   User, Campaign, Submission, PayoutRequest, 
   Broadcast, UserReport, AppState 
 } from '../types';
+// src/types.ts me yeh hona chahiye:
+export enum UserRole {
+  ADMIN = 'admin',
+  USER = 'user',
+}
 
+export enum UserStatus {
+  ACTIVE = 'active',
+  SUSPENDED = 'suspended',
+  BANNED = 'banned',
+}
 // Admin Tab Types
 export type AdminTab = 
   | 'dashboard' 
