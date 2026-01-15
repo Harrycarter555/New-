@@ -17,7 +17,7 @@ import CampaignList from './components/CampaignList';
 import MissionDetailOverlay from './components/MissionDetailOverlay';
 import VerifyView from './components/VerifyView';
 import WalletView from './components/WalletView';
-import AdminPanel from './components/AdminPanel/AdminPanel';
+import AdminPanel from './components/AdminPanel/';
 import ProfileOverlay from './components/overlays/ProfileOverlay';
 import UserDetailOverlay from './components/overlays/UserDetailOverlay';
 import ReportingOverlay from './components/overlays/ReportingOverlay';
