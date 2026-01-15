@@ -8,7 +8,7 @@ import {
   User, UserRole, UserStatus, Campaign, Submission, 
   PayoutRequest, Broadcast, UserReport, AppState,
   SubmissionStatus, PayoutStatus, Platform
-} from '../../types';
+} from '../../utils/types';
 
 // ========== USER MANAGEMENT ==========
 export const userService = {
