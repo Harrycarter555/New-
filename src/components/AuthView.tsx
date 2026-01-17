@@ -39,7 +39,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       
       if (userDoc.exists()) {
         const userData = userDoc.data() as User;
-        setCurrentUser({ ...userData });
+        setCurrentUser({ ...userData, lastLoginAt: Date.now() });
         setCurrentView(userData.role === UserRole.ADMIN ? 'admin' : 'campaigns');
         showToast(`Welcome back, ${userData.username}!`, 'success');
       } else {
@@ -57,10 +57,11 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
           readBroadcastIds: [],
           securityKey: '',
           savedSocialUsername: '',
-          payoutMethod: '', // ✅ FIXED: Empty string
-          payoutDetails: '', // ✅ FIXED: Empty string
+          payoutMethod: {},
+          payoutDetails: {},
           failedAttempts: 0,
           lockoutUntil: undefined,
+          lastLoginAt: Date.now()
         };
         
         await setDoc(doc(db, 'users', userCredential.user.uid), basicUser);
@@ -118,14 +119,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       // Create Firebase user
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Generate security key
-      const generateSecurityKey = () => {
-        return Math.random().toString(36).substring(2, 10) + 
-               Math.random().toString(36).substring(2, 10);
-      };
-      
       // Create user object for Firestore
-      const newUser: User = {
+      const newUser = {
         id: userCredential.user.uid,
         username: username,
         email: email,
@@ -135,20 +130,22 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         pendingBalance: 0,
         totalEarnings: 0,
         joinedAt: Date.now(),
-        readBroadcastIds: [], // ✅ FIXED: Empty array
-        securityKey: generateSecurityKey(),
+        readBroadcastIds: '',
+        securityKey: '',
         savedSocialUsername: '',
-        payoutMethod: '', // ✅ FIXED: Empty string
-        payoutDetails: '', // ✅ FIXED: Empty string
+        payoutMethod: '',
+        payoutDetails: '',
         failedAttempts: 0,
-        lockoutUntil: undefined,
+        lockoutUntil: null,
+        lastLoginAt: Date.now(),
+        createdAt: new Date()
       };
       
       // Save to Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
       
       // Set current user and redirect
-      setCurrentUser(newUser); // ✅ No need for type assertion now
+      setCurrentUser(newUser);
       setCurrentView('campaigns');
       showToast(`Welcome to ReelEarn, ${username}!`, 'success');
       
