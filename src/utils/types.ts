@@ -1,4 +1,4 @@
-// src/types.ts
+// src/types.ts - UPDATED VERSION
 
 // ========== ENUMS ==========
 export enum UserRole { 
@@ -35,21 +35,30 @@ export enum Platform {
 export interface User {
   id: string;
   username: string;
-  password?: string;
-  email?: string;
+  email: string; // Changed from optional to required
   role: UserRole;
   status: UserStatus;
   walletBalance: number;
   pendingBalance: number;
   totalEarnings: number;
   joinedAt: number;
+  lastLoginAt: number; // ADDED THIS
   readBroadcastIds: string[];
   securityKey: string;
   failedAttempts?: number;
   lockoutUntil?: number;
   savedSocialUsername?: string;
-  payoutMethod?: 'UPI' | 'BANK' | 'USDT' | string;
-  payoutDetails?: string;
+  payoutMethod?: {
+    type?: string;
+    details?: string;
+  }; // Changed to object
+  payoutDetails?: {
+    upiId?: string;
+    bankAccount?: string;
+    ifscCode?: string;
+    usdtAddress?: string;
+  }; // Changed to object
+  createdAt?: number; // ADDED THIS
 }
 
 export interface Campaign {
@@ -103,8 +112,10 @@ export interface Broadcast {
   id: string;
   content: string;
   senderId: string;
+  senderName?: string; // ADDED THIS
   targetUserId?: string;
   timestamp: number;
+  readBy?: string[]; // ADDED THIS
 }
 
 export interface UserReport {
@@ -204,6 +215,7 @@ export interface AdminBroadcastsProps {
   broadcasts: Broadcast[];
   showToast: (message: string, type: 'success' | 'error') => void;
   currentUser: User;
+  users?: User[]; // ADDED THIS
 }
 
 // Form Data Types
