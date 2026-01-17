@@ -3,9 +3,10 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword 
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
+import { validatePasswordStrength } from '../utils/passwordValidator'; // पासवर्ड वैलिडेशन के लिए
 
 interface AuthViewProps {
   setCurrentUser: (user: User | null) => void;
@@ -20,10 +21,66 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   const [username, setUsername] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<{[key: string]: string}>({});
+
+  // Validate username and email are not same
+  const validateInputs = () => {
+    const newErrors: {[key: string]: string} = {};
+
+    if (activeTab === 'signup') {
+      // Check if username and email are same
+      if (username && email && username.toLowerCase() === email.toLowerCase()) {
+        newErrors.username = 'Username and email cannot be the same';
+      }
+
+      // Check if username already exists
+      if (username.length < 3) {
+        newErrors.username = 'Username must be at least 3 characters';
+      }
+
+      // Validate password strength
+      const passwordValidation = validatePasswordStrength(password);
+      if (!passwordValidation.isValid) {
+        newErrors.password = passwordValidation.message;
+      }
+
+      // Check if passwords match
+      if (password !== confirmPassword) {
+        newErrors.confirmPassword = 'Passwords do not match';
+      }
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (email && !emailRegex.test(email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Check if username already exists in database
+  const checkUsernameExists = async (username: string): Promise<boolean> => {
+    try {
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('username', '==', username.toLowerCase()));
+      const querySnapshot = await getDocs(q);
+      return !querySnapshot.empty;
+    } catch (error) {
+      console.error('Error checking username:', error);
+      return false;
+    }
+  };
 
   // Handle Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateInputs()) {
+      showToast('Please fix the errors before logging in', 'error');
+      return;
+    }
     
     if (!email || !password) {
       showToast('Please enter email and password', 'error');
@@ -73,6 +130,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       // Clear form
       setEmail('');
       setPassword('');
+      setErrors({});
       
     } catch (error: any) {
       console.error('Login error:', error);
@@ -86,9 +144,14 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         errorMessage = 'Invalid email address.';
       } else if (error.code === 'auth/too-many-requests') {
         errorMessage = 'Too many attempts. Try again later.';
+      } else if (error.code === 'auth/user-disabled') {
+        errorMessage = 'Your account has been disabled.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your connection.';
       }
       
       showToast(errorMessage, 'error');
+      setErrors({ general: errorMessage });
     } finally {
       setLoading(false);
     }
@@ -98,18 +161,30 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Validate inputs
+    if (!validateInputs()) {
+      const errorMessages = Object.values(errors).join(', ');
+      showToast(`Please fix errors: ${errorMessages}`, 'error');
+      return;
+    }
+    
     if (!username || !email || !password) {
       showToast('Please fill all fields', 'error');
       return;
     }
     
-    if (password.length < 6) {
-      showToast('Password must be at least 6 characters', 'error');
+    // Check if username already exists
+    const usernameExists = await checkUsernameExists(username);
+    if (usernameExists) {
+      showToast('Username already taken. Please choose another.', 'error');
+      setErrors({ ...errors, username: 'Username already taken' });
       return;
     }
     
-    if (password !== confirmPassword) {
-      showToast('Passwords do not match', 'error');
+    // Validate username and email are not same
+    if (username.toLowerCase() === email.toLowerCase()) {
+      showToast('Username and email cannot be the same', 'error');
+      setErrors({ ...errors, username: 'Username and email cannot be the same' });
       return;
     }
     
@@ -122,15 +197,15 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       // Create user object for Firestore
       const newUser = {
         id: userCredential.user.uid,
-        username: username,
-        email: email,
+        username: username.toLowerCase(),
+        email: email.toLowerCase(),
         role: UserRole.USER,
         status: UserStatus.ACTIVE,
         walletBalance: 100,
         pendingBalance: 0,
         totalEarnings: 0,
         joinedAt: Date.now(),
-        readBroadcastIds: '',
+        readBroadcastIds: [],
         securityKey: '',
         savedSocialUsername: '',
         payoutMethod: '',
@@ -147,13 +222,14 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       // Set current user and redirect
       setCurrentUser(newUser);
       setCurrentView('campaigns');
-      showToast(`Welcome to ReelEarn, ${username}!`, 'success');
+      showToast(`Welcome to ReelEarn, ${username}! ₹100 bonus added to your wallet!`, 'success');
       
       // Clear form
       setUsername('');
       setEmail('');
       setPassword('');
       setConfirmPassword('');
+      setErrors({});
       
     } catch (error: any) {
       console.error('Signup error:', error);
@@ -162,12 +238,17 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       if (error.code === 'auth/email-already-in-use') {
         errorMessage = 'Email already registered. Please login.';
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'Password is too weak. Use at least 6 characters.';
+        errorMessage = 'Password is too weak. Use at least 6 characters with uppercase, lowercase, number and special character.';
       } else if (error.code === 'auth/invalid-email') {
         errorMessage = 'Invalid email address.';
+      } else if (error.code === 'auth/operation-not-allowed') {
+        errorMessage = 'Email/password accounts are not enabled.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your connection.';
       }
       
       showToast(errorMessage, 'error');
+      setErrors({ general: errorMessage });
     } finally {
       setLoading(false);
     }
@@ -175,8 +256,38 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 
   // Handle form submit
   const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Clear previous errors
+    setErrors({});
+    
     if (activeTab === 'login') return handleLogin(e);
     if (activeTab === 'signup') return handleSignup(e);
+  };
+
+  // Input change handlers with validation
+  const handleUsernameChange = (value: string) => {
+    setUsername(value);
+    // Validate in real-time for signup
+    if (activeTab === 'signup' && email && value.toLowerCase() === email.toLowerCase()) {
+      setErrors({ ...errors, username: 'Username and email cannot be the same' });
+    } else {
+      const newErrors = { ...errors };
+      delete newErrors.username;
+      setErrors(newErrors);
+    }
+  };
+
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    // Validate in real-time for signup
+    if (activeTab === 'signup' && username && value.toLowerCase() === username.toLowerCase()) {
+      setErrors({ ...errors, email: 'Email and username cannot be the same' });
+    } else {
+      const newErrors = { ...errors };
+      delete newErrors.email;
+      setErrors(newErrors);
+    }
   };
 
   return (
@@ -198,33 +309,51 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
           <div className="flex mb-6 bg-slate-900/50 p-1 rounded-2xl">
             <button
               type="button"
-              onClick={() => setActiveTab('login')}
+              onClick={() => {
+                setActiveTab('login');
+                setErrors({});
+              }}
               className={`flex-1 py-3 rounded-xl font-bold ${activeTab === 'login' ? 'bg-cyan-500 text-black' : 'text-slate-500'}`}
             >
               LOGIN
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('signup')}
+              onClick={() => {
+                setActiveTab('signup');
+                setErrors({});
+              }}
               className={`flex-1 py-3 rounded-xl font-bold ${activeTab === 'signup' ? 'bg-cyan-500 text-black' : 'text-slate-500'}`}
             >
               SIGN UP
             </button>
           </div>
 
+          {/* Error message display */}
+          {errors.general && (
+            <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-xl">
+              <p className="text-red-400 text-sm">{errors.general}</p>
+            </div>
+          )}
+
           {/* Form */}
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} noValidate>
             {/* Username for signup only */}
             {activeTab === 'signup' && (
               <div className="mb-4">
                 <input
                   type="text"
-                  placeholder="Choose a username"
+                  placeholder="Choose a username (min 3 chars)"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white"
+                  onChange={(e) => handleUsernameChange(e.target.value)}
+                  className={`w-full bg-slate-900/50 border ${errors.username ? 'border-red-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white`}
                   required
+                  minLength={3}
+                  maxLength={20}
                 />
+                {errors.username && (
+                  <p className="text-red-400 text-xs mt-1 ml-1">{errors.username}</p>
+                )}
               </div>
             )}
 
@@ -234,22 +363,34 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                 type="email"
                 placeholder="Your email address"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white"
+                onChange={(e) => handleEmailChange(e.target.value)}
+                className={`w-full bg-slate-900/50 border ${errors.email ? 'border-red-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white`}
                 required
               />
+              {errors.email && (
+                <p className="text-red-400 text-xs mt-1 ml-1">{errors.email}</p>
+              )}
             </div>
 
             {/* Password */}
             <div className="mb-4">
               <input
                 type="password"
-                placeholder={activeTab === 'signup' ? "Create password (min 6 chars)" : "Enter your password"}
+                placeholder={activeTab === 'signup' ? "Create strong password" : "Enter your password"}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white"
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  const newErrors = { ...errors };
+                  delete newErrors.password;
+                  setErrors(newErrors);
+                }}
+                className={`w-full bg-slate-900/50 border ${errors.password ? 'border-red-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white`}
                 required
+                minLength={6}
               />
+              {errors.password && (
+                <p className="text-red-400 text-xs mt-1 ml-1">{errors.password}</p>
+              )}
             </div>
 
             {/* Confirm Password for signup only */}
@@ -259,18 +400,26 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                   type="password"
                   placeholder="Confirm password"
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white"
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    const newErrors = { ...errors };
+                    delete newErrors.confirmPassword;
+                    setErrors(newErrors);
+                  }}
+                  className={`w-full bg-slate-900/50 border ${errors.confirmPassword ? 'border-red-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white`}
                   required
                 />
+                {errors.confirmPassword && (
+                  <p className="text-red-400 text-xs mt-1 ml-1">{errors.confirmPassword}</p>
+                )}
               </div>
             )}
 
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold py-4 rounded-xl hover:opacity-90 disabled:opacity-50"
+              disabled={loading || Object.keys(errors).length > 0}
+              className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold py-4 rounded-xl hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <span className="flex items-center justify-center">
@@ -297,6 +446,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                   setPassword('');
                   setUsername('');
                   setConfirmPassword('');
+                  setErrors({});
                 }}
                 className="text-cyan-400 ml-2 font-bold hover:text-cyan-300"
               >
@@ -306,21 +456,37 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
           </div>
         </div>
 
+        {/* Password Requirements Info (for signup) */}
+        {activeTab === 'signup' && (
+          <div className="mt-4 p-3 bg-slate-900/50 border border-slate-700 rounded-xl">
+            <p className="text-slate-400 text-xs font-bold mb-1">PASSWORD REQUIREMENTS:</p>
+            <ul className="text-slate-500 text-xs space-y-1">
+              <li>• Minimum 6 characters</li>
+              <li>• At least one uppercase letter</li>
+              <li>• At least one lowercase letter</li>
+              <li>• At least one number</li>
+              <li>• At least one special character (!@#$%^&*)</li>
+            </ul>
+          </div>
+        )}
+
         {/* Status */}
         <div className="mt-6 p-4 bg-slate-900/50 border border-slate-700 rounded-xl">
           <div className="flex items-center justify-between mb-2">
             <span className="text-slate-400 text-xs font-bold">SYSTEM STATUS</span>
             <span className="text-green-400 text-xs font-bold flex items-center">
               <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-              READY
+              SECURE & READY
             </span>
           </div>
           <p className="text-slate-500 text-xs">
-            • Simple email/password authentication
+            • Email/password authentication
+            <br />
+            • Username validation
             <br />
             • Real-time database
             <br />
-            • Secure and fast
+            • Secure and encrypted
           </p>
         </div>
       </div>
