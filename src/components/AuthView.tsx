@@ -6,7 +6,7 @@ import {
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
-import { validatePasswordStrength } from '../utils/passwordValidator'; // पासवर्ड वैलिडेशन के लिए
+import { validatePasswordStrength } from '../../utils/passwordValidator'; // पासवर्ड वैलिडेशन के लिए
 
 interface AuthViewProps {
   setCurrentUser: (user: User | null) => void;
