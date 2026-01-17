@@ -6,12 +6,21 @@ interface AdminBroadcastsProps {
   broadcasts: any[];
   showToast: (message: string, type: 'success' | 'error') => void;
   currentUser: any;
+  users: any[]; // ✅ ADDED USERS PROP
 }
 
-const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ broadcasts, showToast, currentUser }) => {
+const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ 
+  broadcasts, 
+  showToast, 
+  currentUser,
+  users = [] // ✅ DEFAULT VALUE
+}) => {
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [targetId, setTargetId] = useState('');
   const [sending, setSending] = useState(false);
+
+  // Filter out admin users
+  const regularUsers = users.filter(u => u.role !== 'admin');
 
   const handleSendBroadcast = async () => {
     if (!broadcastMsg.trim()) {
@@ -65,8 +74,13 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ broadcasts, showToast
             <option value="specific" disabled className="bg-black text-slate-500">
               ── Specific User ──
             </option>
-            {/* User options would be populated dynamically */}
-            <option value="user-1" className="bg-black">Target Node: @pro_creator</option>
+            
+            {/* ✅ DYNAMIC USERS LIST */}
+            {regularUsers.map(user => (
+              <option key={user.id} value={user.id} className="bg-black">
+                @{user.username} ({user.email || 'No email'})
+              </option>
+            ))}
           </select>
           
           <textarea
