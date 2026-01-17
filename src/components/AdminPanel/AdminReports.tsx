@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react'; // ✅ useState ADDED
 import { reportService } from './firebaseService';
 import { ICONS } from '../../utils/constants';
 
@@ -16,7 +16,7 @@ const AdminReports: React.FC<AdminReportsProps> = ({ reports, showToast }) => {
   const handleResolveReport = async (reportId: string) => {
     setProcessing(reportId);
     try {
-      await reportService.resolveReport(reportId, 'admin-id'); // Replace with actual admin ID
+      await reportService.resolveReport(reportId, 'admin-id');
       showToast('Report marked as resolved', 'success');
     } catch (error: any) {
       showToast(error.message || 'Failed to resolve report', 'error');
