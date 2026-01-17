@@ -8,6 +8,20 @@ export const ICONS = {
   ),
   // ... existing icons
 };
+// ICONS object me yeh missing icons add karein:
+Users: (props) => (/* SVG code */),
+Wallet: (props) => (/* SVG code */),
+Lock: (props) => (/* SVG code */),
+ArrowLeft: (props) => (/* SVG code */),
+Search: (props) => (/* SVG code */),
+Check: (props) => (/* SVG code */),
+X: (props) => (/* SVG code */),
+Message: (props) => (/* SVG code */),
+Campaign: (props) => (/* SVG code */),
+Info: (props) => (/* SVG code */),
+AlertCircle: (props) => (/* SVG code */),
+AlertTriangle: (props) => (/* SVG code */),
+ChevronDown: (props) => (/* SVG code */),
 
 // NEW: Add APP_CONFIG constants
 export const APP_CONFIG = {
