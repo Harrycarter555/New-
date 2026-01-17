@@ -7,7 +7,7 @@ import AdminPayouts from './AdminPayouts';
 import AdminReports from './AdminReports';
 import AdminBroadcasts from './AdminBroadcasts';
 import { userService, campaignService, payoutService, submissionService, reportService, broadcastService, cashflowService } from './firebaseService';
-import { User, UserRole } from '../../types';
+import { User, UserRole } from '../../utils/types';
 import { ICONS } from '../../utils/constants';
 
 type AdminTab = 'dashboard' | 'members' | 'campaigns' | 'cashflow' | 'payouts' | 'reports' | 'broadcasts';
