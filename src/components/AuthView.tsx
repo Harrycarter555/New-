@@ -1,5 +1,3 @@
-cd ~/New-
-cat > src/components/AuthView.tsx << 'EOF'
 import React, { useState, useEffect } from 'react';
 import { 
   signInWithEmailAndPassword, 
@@ -769,4 +767,3 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 };
 
 export default AuthView;
-EOF
