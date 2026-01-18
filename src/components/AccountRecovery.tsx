@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 import { sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
@@ -135,7 +135,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
         return;
       }
 
-      // Method 1: Send password reset email (recommended)
+      // Send password reset email
       await sendPasswordResetEmail(auth, userData.email);
       
       showToast('✅ Password reset email sent! Check your inbox and spam folder.', 'success');
@@ -208,7 +208,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
         message: `User ${userData.username} (${userData.email}) lost security key and needs help with account recovery.`,
         createdAt: Date.now(),
         requestId: `ADMIN-REQ-${Date.now().toString(36).toUpperCase()}`,
-        userEmail: userData.email, // Extra field for easy querying
+        userEmail: userData.email,
         timestamp: Date.now()
       };
 
@@ -242,9 +242,6 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
     setError('');
     setStep(1);
   };
-
-  // Import addDoc at the top
-  import { addDoc } from 'firebase/firestore';
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-black p-4">
@@ -357,7 +354,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
               <div>
                 <input
                   type="text"
-                  placeholder="Enter your security key (case-sensitive)"
+                  placeholder="Enter your security key (case-insensitive)"
                   value={securityKey}
                   onChange={(e) => {
                     setSecurityKey(e.target.value);
