@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface SecurityKeyModalProps {
@@ -13,8 +12,30 @@ const SecurityKeyModal: React.FC<SecurityKeyModalProps> = ({
   showToast
 }) => {
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(securityKey);
-    showToast('Security key copied to clipboard!', 'success');
+    // Termux-compatible copy method
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(securityKey)
+        .then(() => showToast('Security key copied!', 'success'))
+        .catch(() => {
+          // Fallback method for Termux
+          const textArea = document.createElement('textarea');
+          textArea.value = securityKey;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+          showToast('Security key copied!', 'success');
+        });
+    } else {
+      // Old school method
+      const textArea = document.createElement('textarea');
+      textArea.value = securityKey;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      showToast('Security key copied!', 'success');
+    }
   };
 
   return (
@@ -45,28 +66,14 @@ const SecurityKeyModal: React.FC<SecurityKeyModalProps> = ({
               </p>
             </div>
             <p className="text-xs text-slate-500 mt-2">
-              Copy and save this key in a secure place (password manager, notes, etc.)
+              📱 <strong>Termux users:</strong> Long press to select, then copy
             </p>
-          </div>
-
-          {/* Warning Message */}
-          <div className="mb-6 p-3 bg-red-900/20 border border-red-800/50 rounded-lg">
-            <p className="text-xs text-red-300 font-bold mb-1">⚠️ WARNING:</p>
-            <ul className="text-xs text-red-400 list-disc list-inside space-y-1">
-              <li>This key cannot be recovered if lost</li>
-              <li>Without this key, you cannot recover your account</li>
-              <li>Do not share this key with anyone</li>
-              <li>Admin cannot recover your account without this key</li>
-            </ul>
           </div>
 
           {/* Action Buttons */}
           <div className="space-y-3">
             <button
-              onClick={() => {
-                onClose();
-                showToast('Remember to save your security key!', 'info');
-              }}
+              onClick={onClose}
               className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-black font-bold py-3 rounded-lg hover:opacity-90"
             >
               ✅ I have saved my security key
