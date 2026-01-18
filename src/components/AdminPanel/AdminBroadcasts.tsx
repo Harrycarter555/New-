@@ -34,7 +34,7 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
 
       try {
         setLoadingUsers(true);
-        const fetchedUsers = await userService.getAllUsers();
+        const fetchedUsers = await userService.getUsers();
         setAllUsers(fetchedUsers as User[]);
         
         // Filter users for dropdown
