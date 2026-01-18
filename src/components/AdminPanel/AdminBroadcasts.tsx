@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { broadcastService } from './firebaseService';
+import { broadcastService, userService } from './firebaseService';
 import { ICONS } from '../../utils/constants';
 import { User, UserRole, UserStatus } from '../../utils/types';
 
@@ -20,23 +20,55 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
   const [targetId, setTargetId] = useState<string>('broadcast');
   const [sending, setSending] = useState(false);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>(users);
+  const [loadingUsers, setLoadingUsers] = useState(!users.length);
 
-  // Process users
+  // Fetch users if not passed from parent
   useEffect(() => {
-    if (users && users.length > 0) {
-      const filteredUsers = users.filter(user => 
+    const fetchUsers = async () => {
+      if (users && users.length > 0) {
+        setAllUsers(users);
+        setLoadingUsers(false);
+        return;
+      }
+
+      try {
+        setLoadingUsers(true);
+        const fetchedUsers = await userService.getAllUsers();
+        setAllUsers(fetchedUsers as User[]);
+        
+        // Filter users for dropdown
+        const filteredUsers = fetchedUsers.filter((user: User) => 
+          user.id !== currentUser?.id && 
+          user.role !== UserRole.ADMIN && 
+          user.status === UserStatus.ACTIVE
+        );
+        setAvailableUsers(filteredUsers);
+      } catch (error) {
+        console.error('Failed to fetch users:', error);
+        showToast('Failed to load users', 'error');
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+
+    fetchUsers();
+  }, [users, currentUser]);
+
+  // Update available users when allUsers changes
+  useEffect(() => {
+    if (allUsers.length > 0) {
+      const filteredUsers = allUsers.filter(user => 
         user.id !== currentUser?.id && 
         user.role !== UserRole.ADMIN && 
         user.status === UserStatus.ACTIVE
       );
       setAvailableUsers(filteredUsers);
-    } else {
-      setAvailableUsers([]);
     }
-  }, [users, currentUser]);
+  }, [allUsers, currentUser]);
 
   const getUsernameById = (userId: string) => {
-    const user = users.find(u => u.id === userId);
+    const user = allUsers.find(u => u.id === userId);
     return user ? `@${user.username}` : 'Unknown User';
   };
 
@@ -48,7 +80,7 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
 
     // Validate specific user
     if (targetId && targetId !== 'broadcast') {
-      const selectedUser = users.find(u => u.id === targetId);
+      const selectedUser = allUsers.find(u => u.id === targetId);
       if (!selectedUser) {
         showToast('Selected user not found', 'error');
         return;
@@ -77,6 +109,7 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
       setTargetId('broadcast');
       
     } catch (error: any) {
+      console.error('Broadcast error:', error);
       showToast(error.message || 'Failed to send broadcast', 'error');
     } finally {
       setSending(false);
@@ -95,7 +128,7 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
 
   const getBroadcastTargetInfo = (broadcast: any) => {
     if (broadcast.targetUserId) {
-      const user = users.find(u => u.id === broadcast.targetUserId);
+      const user = allUsers.find(u => u.id === broadcast.targetUserId);
       return {
         type: 'SPECIFIC USER',
         name: user ? `@${user.username}` : 'Unknown User',
@@ -108,7 +141,7 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
   };
 
   const getNonAdminUsersCount = () => {
-    return users.filter(u => u.role !== UserRole.ADMIN).length;
+    return allUsers.filter(u => u.role !== UserRole.ADMIN).length;
   };
 
   return (
@@ -129,22 +162,41 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
             <select
               value={targetId}
               onChange={(e) => setTargetId(e.target.value)}
-              className="w-full bg-black/30 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
+              disabled={loadingUsers}
+              className="w-full bg-black/30 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500 disabled:opacity-50"
             >
-              <option value="broadcast" className="bg-gray-900">
-                🌐 Broadcast to All Users ({getNonAdminUsersCount()} users)
-              </option>
-              
-              {availableUsers.length > 0 && (
-                <optgroup label="Send to Specific User" className="bg-gray-900">
-                  {availableUsers.map(user => (
-                    <option key={user.id} value={user.id} className="bg-gray-900">
-                      👤 @{user.username}
-                    </option>
-                  ))}
-                </optgroup>
+              {loadingUsers ? (
+                <option className="bg-gray-900">Loading users...</option>
+              ) : (
+                <>
+                  <option value="broadcast" className="bg-gray-900">
+                    🌐 Broadcast to All Users ({getNonAdminUsersCount()} users)
+                  </option>
+                  
+                  {availableUsers.length > 0 && (
+                    <optgroup label="Send to Specific User" className="bg-gray-900">
+                      {availableUsers.map(user => (
+                        <option key={user.id} value={user.id} className="bg-gray-900">
+                          👤 @{user.username} 
+                          {user.email && ` (${user.email})`}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </>
               )}
             </select>
+            
+            {!loadingUsers && (
+              <div className="text-xs text-slate-500 mt-2">
+                {targetId === 'broadcast' 
+                  ? `Will be sent to ${getNonAdminUsersCount()} users` 
+                  : targetId && targetId !== 'broadcast'
+                  ? `Sending to 1 user: ${getUsernameById(targetId)}`
+                  : 'Select a user or broadcast to all'
+                }
+              </div>
+            )}
           </div>
           
           {/* Message Input */}
@@ -158,23 +210,45 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
               className="w-full bg-black/30 border border-slate-700 rounded-lg p-4 text-white h-32 resize-none focus:outline-none focus:border-cyan-500"
               placeholder="Type your message here..."
               maxLength={500}
+              disabled={loadingUsers}
             />
             <div className="flex justify-between text-xs text-slate-500 mt-1">
               <span>Max 500 characters</span>
-              <span>{broadcastMsg.length}/500</span>
+              <span className={broadcastMsg.length > 450 ? 'text-amber-500' : ''}>
+                {broadcastMsg.length}/500
+              </span>
             </div>
           </div>
           
           {/* Send Button */}
           <button
             onClick={handleSendBroadcast}
-            disabled={sending || !broadcastMsg.trim()}
-            className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold py-3 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            disabled={sending || !broadcastMsg.trim() || loadingUsers}
+            className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold py-3 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
           >
-            {sending ? 'Sending...' : 'Send Message'}
+            {sending ? (
+              <>
+                <span className="animate-spin">⟳</span>
+                Sending...
+              </>
+            ) : loadingUsers ? (
+              'Loading users...'
+            ) : targetId && targetId !== 'broadcast' ? (
+              `Send to @${getUsernameById(targetId)}`
+            ) : (
+              'Broadcast to All Users'
+            )}
           </button>
         </div>
       </div>
+
+      {/* Users Loading State */}
+      {loadingUsers && (
+        <div className="text-center py-8">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-cyan-500"></div>
+          <p className="text-slate-500 text-sm mt-2">Loading users...</p>
+        </div>
+      )}
 
       {/* Sent Broadcasts */}
       <div>
@@ -200,7 +274,7 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
               return (
                 <div 
                   key={broadcast.id} 
-                  className="bg-black/30 border border-slate-800 p-4 rounded-lg"
+                  className="bg-black/30 border border-slate-800 p-4 rounded-lg hover:bg-black/40 transition-colors"
                 >
                   <div className="flex justify-between items-start mb-2">
                     <div>
