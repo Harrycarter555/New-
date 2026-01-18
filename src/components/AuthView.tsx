@@ -1,3 +1,5 @@
+cd ~/New-
+cat > src/components/AuthView.tsx << 'EOF'
 import React, { useState, useEffect } from 'react';
 import { 
   signInWithEmailAndPassword, 
@@ -8,7 +10,6 @@ import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 import { validatePasswordStrength, getPasswordStrengthColor } from '../utils/passwordValidator';
 import { generateSecurityKey } from '../utils/SecurityKeyUtils';
-import SecurityKeyModal from './SecurityKeyModal';
 
 interface AuthViewProps {
   setCurrentUser: (user: User | null) => void;
@@ -30,9 +31,11 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     color: string;
     message: string;
   } | null>(null);
-  const [showSecurityKeyModal, setShowSecurityKeyModal] = useState(false);
+  
+  // ✅ NEW: Security Key State for Signup
+  const [showGenerateKey, setShowGenerateKey] = useState(false);
   const [generatedSecurityKey, setGeneratedSecurityKey] = useState('');
-  const [signupSuccess, setSignupSuccess] = useState(false); // NEW: Track signup success
+  const [keyGenerated, setKeyGenerated] = useState(false);
 
   // Real-time password strength check
   useEffect(() => {
@@ -44,10 +47,57 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         color: getPasswordStrengthColor(validation.strength),
         message: validation.message
       });
+      
+      // ✅ Show generate key option when password is strong enough
+      if (validation.score >= 60) {
+        setShowGenerateKey(true);
+      } else {
+        setShowGenerateKey(false);
+        setKeyGenerated(false);
+        setGeneratedSecurityKey('');
+      }
     } else {
       setPasswordStrength(null);
+      setShowGenerateKey(false);
+      setKeyGenerated(false);
+      setGeneratedSecurityKey('');
     }
   }, [password, activeTab]);
+
+  // ✅ Generate Security Key Function
+  const handleGenerateKey = () => {
+    const key = generateSecurityKey();
+    setGeneratedSecurityKey(key);
+    setKeyGenerated(true);
+    showToast('Security key generated! Copy and save it.', 'success');
+  };
+
+  // ✅ Copy to Clipboard
+  const copyToClipboard = (text: string) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text)
+        .then(() => showToast('Security key copied!', 'success'))
+        .catch(() => {
+          // Fallback for Termux
+          const textArea = document.createElement('textarea');
+          textArea.value = text;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+          showToast('Security key copied!', 'success');
+        });
+    } else {
+      // Old method
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      showToast('Security key copied!', 'success');
+    }
+  };
 
   // Validate username and email are not same
   const validateInputs = () => {
@@ -72,7 +122,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       const passwordValidation = validatePasswordStrength(password);
       if (!passwordValidation.isValid) {
         newErrors.password = passwordValidation.message;
-        // Show all issues
         if (passwordValidation.issues.length > 0) {
           newErrors.passwordDetails = passwordValidation.issues.join(', ');
         }
@@ -81,6 +130,11 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       // Check if passwords match
       if (password && confirmPassword && password !== confirmPassword) {
         newErrors.confirmPassword = 'Passwords do not match';
+      }
+
+      // ✅ Check if security key is generated
+      if (!keyGenerated && passwordValidation.score >= 60) {
+        newErrors.securityKey = 'Please generate your security key';
       }
     }
 
@@ -197,7 +251,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     }
   };
 
-  // Handle Signup - FIXED VERSION
+  // Handle Signup
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -213,9 +267,9 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       return;
     }
     
-    // Validate inputs
+    // Validate inputs including security key
     if (!validateInputs()) {
-      if (errors.username || errors.email || errors.password) {
+      if (errors.username || errors.email || errors.password || errors.securityKey) {
         showToast('Please fix the errors in the form', 'error');
       }
       return;
@@ -244,14 +298,10 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     try {
       setLoading(true);
       
-      // Generate security key using utility function
-      const securityKey = generateSecurityKey();
-      setGeneratedSecurityKey(securityKey);
-      
       // Create Firebase user
       const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
       
-      // Create user object for Firestore
+      // Create user object for Firestore with generated key
       const newUser: User = {
         id: userCredential.user.uid,
         username: trimmedUsername.toLowerCase(),
@@ -263,7 +313,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         totalEarnings: 0,
         joinedAt: Date.now(),
         readBroadcastIds: [],
-        securityKey: securityKey,
+        securityKey: generatedSecurityKey, // Use the generated key
         savedSocialUsername: '',
         payoutMethod: '',
         payoutDetails: '',
@@ -274,9 +324,10 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       // Save to Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
       
-      // ✅ FIX: Set signup success FIRST, show modal, BUT DON'T LOGIN YET
-      setSignupSuccess(true);
-      setShowSecurityKeyModal(true);
+      // Set current user and redirect
+      setCurrentUser(newUser);
+      setCurrentView('campaigns');
+      showToast(`Welcome to ReelEarn, ${newUser.username}! ₹100 bonus added!`, 'success');
       
       // Clear form
       setUsername('');
@@ -285,8 +336,9 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       setConfirmPassword('');
       setErrors({});
       setPasswordStrength(null);
-      
-      showToast('Account created! Please save your security key.', 'info');
+      setShowGenerateKey(false);
+      setKeyGenerated(false);
+      setGeneratedSecurityKey('');
       
     } catch (error: any) {
       console.error('Signup error:', error);
@@ -311,18 +363,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     }
   };
 
-  // Handle Security Key Modal Close - FIXED
-  const handleSecurityKeyModalClose = () => {
-    setShowSecurityKeyModal(false);
-    
-    if (signupSuccess) {
-      // After user saves key, THEN login
-      setCurrentView('campaigns');
-      showToast('Account created successfully! Welcome to ReelEarn!', 'success');
-      setSignupSuccess(false); // Reset
-    }
-  };
-
   // Handle form submit
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -336,10 +376,9 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     if (activeTab === 'signup') return handleSignup(e);
   };
 
-  // Input change handlers with validation
+  // Input change handlers
   const handleUsernameChange = (value: string) => {
     setUsername(value);
-    // Validate in real-time for signup
     if (activeTab === 'signup') {
       if (email && value.toLowerCase() === email.toLowerCase()) {
         setErrors({ ...errors, username: 'Username and email cannot be the same' });
@@ -357,7 +396,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 
   const handleEmailChange = (value: string) => {
     setEmail(value);
-    // Validate in real-time
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (value && !emailRegex.test(value)) {
       setErrors({ ...errors, email: 'Please enter a valid email address' });
@@ -372,7 +410,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 
   const handlePasswordChange = (value: string) => {
     setPassword(value);
-    // For signup, validate in real-time
     if (activeTab === 'signup') {
       if (value && confirmPassword && value !== confirmPassword) {
         setErrors({ ...errors, confirmPassword: 'Passwords do not match' });
@@ -381,6 +418,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         delete newErrors.password;
         delete newErrors.confirmPassword;
         delete newErrors.passwordDetails;
+        delete newErrors.securityKey;
         setErrors(newErrors);
       }
     }
@@ -399,15 +437,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-black p-4">
-      {/* Security Key Modal - FIXED */}
-      {showSecurityKeyModal && (
-        <SecurityKeyModal
-          securityKey={generatedSecurityKey}
-          onClose={handleSecurityKeyModalClose} // ✅ Use fixed handler
-          showToast={showToast}
-        />
-      )}
-      
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
@@ -428,6 +457,9 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                 setActiveTab('login');
                 setErrors({});
                 setPasswordStrength(null);
+                setShowGenerateKey(false);
+                setKeyGenerated(false);
+                setGeneratedSecurityKey('');
               }}
               className={`flex-1 py-3 rounded-xl font-bold transition-all ${activeTab === 'login' ? 'bg-cyan-500 text-black' : 'text-slate-500 hover:text-slate-300'}`}
             >
@@ -553,6 +585,58 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
               )}
             </div>
 
+            {/* ✅ SECURITY KEY GENERATION SECTION */}
+            {activeTab === 'signup' && showGenerateKey && (
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-bold text-slate-300">Security Key</span>
+                  
+                  {!keyGenerated ? (
+                    <button
+                      type="button"
+                      onClick={handleGenerateKey}
+                      className="text-xs bg-cyan-500/20 text-cyan-400 px-3 py-1.5 rounded-lg hover:bg-cyan-500/30 flex items-center gap-1"
+                    >
+                      <span>🔑</span> Generate Key
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-green-400 flex items-center gap-1">
+                        <span>✓</span> Generated
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(generatedSecurityKey)}
+                        className="text-xs bg-green-500/20 text-green-400 px-3 py-1.5 rounded-lg hover:bg-green-500/30 flex items-center gap-1"
+                      >
+                        <span>📋</span> Copy
+                      </button>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Security Key Display */}
+                {keyGenerated && (
+                  <div className="mt-2 p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-mono text-white break-all">
+                        {generatedSecurityKey}
+                      </p>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-2">
+                      📱 <strong>Important:</strong> Copy and save this key for account recovery
+                    </p>
+                  </div>
+                )}
+                
+                {errors.securityKey && (
+                  <p className="text-red-400 text-xs mt-1 ml-1 flex items-center">
+                    <span className="mr-1">⚠</span> {errors.securityKey}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Confirm Password for signup only */}
             {activeTab === 'signup' && (
               <div className="mb-6">
@@ -616,6 +700,9 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                   setConfirmPassword('');
                   setErrors({});
                   setPasswordStrength(null);
+                  setShowGenerateKey(false);
+                  setKeyGenerated(false);
+                  setGeneratedSecurityKey('');
                 }}
                 className="text-cyan-400 ml-2 font-bold hover:text-cyan-300 transition-colors"
                 disabled={loading}
@@ -625,7 +712,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             </p>
           </div>
 
-          {/* 🔥 Recovery Link for Login Tab */}
+          {/* Recovery Link for Login Tab */}
           {activeTab === 'login' && (
             <div className="text-center mt-6 pt-4 border-t border-slate-800">
               <button
@@ -643,51 +730,16 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         </div>
 
         {/* Security Key Info */}
-        <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-          <p className="text-amber-400 text-xs font-bold mb-2 flex items-center">
-            <span className="mr-2">🔑</span> SECURITY KEY FEATURE
-          </p>
-          <ul className="text-amber-300 text-xs space-y-1.5">
-            <li className="flex items-start">
-              <span className="mr-2">•</span>
-              <span>Get security key after signup</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2">•</span>
-              <span>Required for account recovery</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2">•</span>
-              <span>Save it securely</span>
-            </li>
-          </ul>
-        </div>
-
-        {/* Password Requirements Info (for signup) */}
         {activeTab === 'signup' && (
-          <div className="mt-4 p-4 bg-slate-900/50 border border-slate-700 rounded-xl">
-            <p className="text-slate-400 text-xs font-bold mb-2 flex items-center">
-              <span className="mr-2">🔒</span> PASSWORD REQUIREMENTS
+          <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+            <p className="text-amber-400 text-xs font-bold mb-2 flex items-center">
+              <span className="mr-2">🔑</span> SECURITY KEY
             </p>
-            <ul className="text-slate-500 text-xs space-y-1.5">
-              <li className="flex items-center">
-                <span className={`mr-2 ${password && password.length >= 6 ? 'text-green-400' : 'text-slate-600'}`}>
-                  {password && password.length >= 6 ? '✓' : '○'}
-                </span>
-                Minimum 6 characters
-              </li>
-              <li className="flex items-center">
-                <span className={`mr-2 ${password && /[A-Z]/.test(password) ? 'text-green-400' : 'text-slate-600'}`}>
-                  {password && /[A-Z]/.test(password) ? '✓' : '○'}
-                </span>
-                One uppercase letter
-              </li>
-              <li className="flex items-center">
-                <span className={`mr-2 ${password && /\d/.test(password) ? 'text-green-400' : 'text-slate-600'}`}>
-                  {password && /\d/.test(password) ? '✓' : '○'}
-                </span>
-                One number
-              </li>
+            <ul className="text-amber-300 text-xs space-y-1.5">
+              <li>• Generate after entering password</li>
+              <li>• Copy and save securely</li>
+              <li>• Required for account recovery</li>
+              <li>• Cannot be recovered if lost</li>
             </ul>
           </div>
         )}
@@ -717,3 +769,4 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 };
 
 export default AuthView;
+EOF
