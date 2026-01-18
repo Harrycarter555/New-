@@ -7,6 +7,8 @@ import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 import { validatePasswordStrength, getPasswordStrengthColor } from '../utils/passwordValidator';
+import { generateSecurityKey } from '../utils/SecurityKeyUtils'; // ✅ NEW IMPORT
+import SecurityKeyModal from './SecurityKeyModal'; // ✅ NEW IMPORT
 
 interface AuthViewProps {
   setCurrentUser: (user: User | null) => void;
@@ -28,24 +30,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     color: string;
     message: string;
   } | null>(null);
-  const [showSecurityKey, setShowSecurityKey] = useState(false);
-  const [generatedSecurityKey, setGeneratedSecurityKey] = useState('');
-
-  // Generate security key
-  const generateSecurityKey = (): string => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    let key = '';
-    for (let i = 0; i < 32; i++) {
-      key += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return `REEL-${key.substring(0, 8)}-${key.substring(8, 16)}-${key.substring(16, 24)}-${key.substring(24, 32)}`;
-  };
-
-  // Copy to clipboard
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    showToast('Security key copied to clipboard!', 'success');
-  };
+  const [showSecurityKeyModal, setShowSecurityKeyModal] = useState(false); // ✅ NEW STATE
+  const [generatedSecurityKey, setGeneratedSecurityKey] = useState(''); // ✅ NEW STATE
 
   // Real-time password strength check
   useEffect(() => {
@@ -154,7 +140,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         showToast(`Welcome back, ${userData.username}!`, 'success');
       } else {
         // If user doc doesn't exist, create basic one
-        const securityKey = generateSecurityKey();
+        const securityKey = generateSecurityKey(); // ✅ USING UTILITY FUNCTION
         const basicUser: User = {
           id: userCredential.user.uid,
           username: email.split('@')[0],
@@ -257,8 +243,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     try {
       setLoading(true);
       
-      // Generate security key
-      const securityKey = generateSecurityKey();
+      // Generate security key using utility function
+      const securityKey = generateSecurityKey(); // ✅ USING UTILITY FUNCTION
       setGeneratedSecurityKey(securityKey);
       
       // Create Firebase user
@@ -288,7 +274,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
       
       // Show security key modal
-      setShowSecurityKey(true);
+      setShowSecurityKeyModal(true);
       
       // Clear form
       setUsername('');
@@ -395,78 +381,16 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     }
   };
 
-  // Security Key Modal Component
-  const SecurityKeyModal = () => (
-    <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-slate-800 w-full max-w-md rounded-xl overflow-hidden">
-        <div className="p-6 border-b border-slate-800 bg-black/50">
-          <h3 className="text-xl font-bold text-white">⚠️ IMPORTANT: Save Your Security Key!</h3>
-          <p className="text-sm text-slate-400 mt-1">
-            This key is required for account recovery. Save it securely!
-          </p>
-        </div>
-
-        <div className="p-6">
-          {/* Security Key Display */}
-          <div className="mb-4">
-            <div className="bg-black/50 border-2 border-amber-500/30 rounded-xl p-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold text-amber-400">SECURITY KEY</span>
-                <button
-                  onClick={() => copyToClipboard(generatedSecurityKey)}
-                  className="text-xs bg-amber-500/20 text-amber-400 px-3 py-1 rounded-lg hover:bg-amber-500/30"
-                >
-                  📋 Copy
-                </button>
-              </div>
-              <p className="text-lg font-mono text-white text-center tracking-wider break-all">
-                {generatedSecurityKey}
-              </p>
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Copy and save this key in a secure place (password manager, notes, etc.)
-            </p>
-          </div>
-
-          {/* Warning Message */}
-          <div className="mb-6 p-3 bg-red-900/20 border border-red-800/50 rounded-lg">
-            <p className="text-xs text-red-300 font-bold mb-1">⚠️ WARNING:</p>
-            <ul className="text-xs text-red-400 list-disc list-inside space-y-1">
-              <li>This key cannot be recovered if lost</li>
-              <li>Without this key, you cannot recover your account</li>
-              <li>Do not share this key with anyone</li>
-              <li>Admin cannot recover your account without this key</li>
-            </ul>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="space-y-3">
-            <button
-              onClick={() => {
-                setShowSecurityKey(false);
-                setCurrentView('campaigns');
-                showToast('Account created successfully! Welcome to ReelEarn!', 'success');
-              }}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-black font-bold py-3 rounded-lg hover:opacity-90"
-            >
-              ✅ I have saved my security key
-            </button>
-
-            <button
-              onClick={() => copyToClipboard(generatedSecurityKey)}
-              className="w-full bg-amber-500/10 text-amber-400 font-bold py-3 rounded-lg border border-amber-500/20 hover:bg-amber-500/20"
-            >
-              📋 Copy Key Again
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-black p-4">
-      {showSecurityKey && <SecurityKeyModal />}
+      {/* Security Key Modal */}
+      {showSecurityKeyModal && (
+        <SecurityKeyModal
+          securityKey={generatedSecurityKey}
+          onClose={() => setShowSecurityKeyModal(false)}
+          showToast={showToast}
+        />
+      )}
       
       <div className="w-full max-w-md">
         {/* Header */}
@@ -684,6 +608,22 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
               </button>
             </p>
           </div>
+
+          {/* 🔥 ONLY THIS NEW SECTION ADDED 🔥 */}
+          {activeTab === 'login' && (
+            <div className="text-center mt-6 pt-4 border-t border-slate-800">
+              <button
+                onClick={() => setCurrentView('recovery')}
+                className="text-cyan-400 hover:text-cyan-300 text-sm font-bold flex items-center justify-center gap-2"
+              >
+                <span>🔐</span>
+                Forgot Password? Recover Account
+              </button>
+              <p className="text-xs text-slate-500 mt-1">
+                Need help with security key or password?
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Security Key Info */}
