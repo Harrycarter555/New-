@@ -146,8 +146,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
           readBroadcastIds: [],
           securityKey: '',
           savedSocialUsername: '',
-          payoutMethod: {},
-          payoutDetails: {},
+          payoutMethod: '',
+          payoutDetails: '',
           failedAttempts: 0,
           lockoutUntil: undefined,
           lastLoginAt: Date.now()
