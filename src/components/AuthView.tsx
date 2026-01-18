@@ -7,8 +7,8 @@ import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 import { validatePasswordStrength, getPasswordStrengthColor } from '../utils/passwordValidator';
-import { generateSecurityKey } from '../utils/SecurityKeyUtils'; // ✅ NEW IMPORT
-import SecurityKeyModal from './SecurityKeyModal'; // ✅ NEW IMPORT
+import { generateSecurityKey } from '../utils/SecurityKeyUtils';
+import SecurityKeyModal from './SecurityKeyModal';
 
 interface AuthViewProps {
   setCurrentUser: (user: User | null) => void;
@@ -30,8 +30,9 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     color: string;
     message: string;
   } | null>(null);
-  const [showSecurityKeyModal, setShowSecurityKeyModal] = useState(false); // ✅ NEW STATE
-  const [generatedSecurityKey, setGeneratedSecurityKey] = useState(''); // ✅ NEW STATE
+  const [showSecurityKeyModal, setShowSecurityKeyModal] = useState(false);
+  const [generatedSecurityKey, setGeneratedSecurityKey] = useState('');
+  const [signupSuccess, setSignupSuccess] = useState(false); // NEW: Track signup success
 
   // Real-time password strength check
   useEffect(() => {
@@ -140,7 +141,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         showToast(`Welcome back, ${userData.username}!`, 'success');
       } else {
         // If user doc doesn't exist, create basic one
-        const securityKey = generateSecurityKey(); // ✅ USING UTILITY FUNCTION
+        const securityKey = generateSecurityKey();
         const basicUser: User = {
           id: userCredential.user.uid,
           username: email.split('@')[0],
@@ -196,7 +197,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     }
   };
 
-  // Handle Signup
+  // Handle Signup - FIXED VERSION
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -244,7 +245,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       setLoading(true);
       
       // Generate security key using utility function
-      const securityKey = generateSecurityKey(); // ✅ USING UTILITY FUNCTION
+      const securityKey = generateSecurityKey();
       setGeneratedSecurityKey(securityKey);
       
       // Create Firebase user
@@ -273,7 +274,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       // Save to Firestore
       await setDoc(doc(db, 'users', userCredential.user.uid), newUser);
       
-      // Show security key modal
+      // ✅ FIX: Set signup success FIRST, show modal, BUT DON'T LOGIN YET
+      setSignupSuccess(true);
       setShowSecurityKeyModal(true);
       
       // Clear form
@@ -283,6 +285,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       setConfirmPassword('');
       setErrors({});
       setPasswordStrength(null);
+      
+      showToast('Account created! Please save your security key.', 'info');
       
     } catch (error: any) {
       console.error('Signup error:', error);
@@ -304,6 +308,18 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
       setErrors({ general: errorMessage });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle Security Key Modal Close - FIXED
+  const handleSecurityKeyModalClose = () => {
+    setShowSecurityKeyModal(false);
+    
+    if (signupSuccess) {
+      // After user saves key, THEN login
+      setCurrentView('campaigns');
+      showToast('Account created successfully! Welcome to ReelEarn!', 'success');
+      setSignupSuccess(false); // Reset
     }
   };
 
@@ -383,11 +399,11 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-black p-4">
-      {/* Security Key Modal */}
+      {/* Security Key Modal - FIXED */}
       {showSecurityKeyModal && (
         <SecurityKeyModal
           securityKey={generatedSecurityKey}
-          onClose={() => setShowSecurityKeyModal(false)}
+          onClose={handleSecurityKeyModalClose} // ✅ Use fixed handler
           showToast={showToast}
         />
       )}
@@ -609,7 +625,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             </p>
           </div>
 
-          {/* 🔥 ONLY THIS NEW SECTION ADDED 🔥 */}
+          {/* 🔥 Recovery Link for Login Tab */}
           {activeTab === 'login' && (
             <div className="text-center mt-6 pt-4 border-t border-slate-800">
               <button
@@ -629,20 +645,20 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         {/* Security Key Info */}
         <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
           <p className="text-amber-400 text-xs font-bold mb-2 flex items-center">
-            <span className="mr-2">🔑</span> NEW SECURITY KEY FEATURE
+            <span className="mr-2">🔑</span> SECURITY KEY FEATURE
           </p>
           <ul className="text-amber-300 text-xs space-y-1.5">
             <li className="flex items-start">
               <span className="mr-2">•</span>
-              <span>Every account gets a <strong>unique security key</strong></span>
+              <span>Get security key after signup</span>
             </li>
             <li className="flex items-start">
               <span className="mr-2">•</span>
-              <span>Required for <strong>account recovery</strong></span>
+              <span>Required for account recovery</span>
             </li>
             <li className="flex items-start">
               <span className="mr-2">•</span>
-              <span>Save it securely - <strong>cannot be recovered</strong></span>
+              <span>Save it securely</span>
             </li>
           </ul>
         </div>
@@ -658,31 +674,19 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                 <span className={`mr-2 ${password && password.length >= 6 ? 'text-green-400' : 'text-slate-600'}`}>
                   {password && password.length >= 6 ? '✓' : '○'}
                 </span>
-                Minimum 6 characters (8+ recommended)
+                Minimum 6 characters
               </li>
               <li className="flex items-center">
                 <span className={`mr-2 ${password && /[A-Z]/.test(password) ? 'text-green-400' : 'text-slate-600'}`}>
                   {password && /[A-Z]/.test(password) ? '✓' : '○'}
                 </span>
-                At least one uppercase letter (A-Z)
-              </li>
-              <li className="flex items-center">
-                <span className={`mr-2 ${password && /[a-z]/.test(password) ? 'text-green-400' : 'text-slate-600'}`}>
-                  {password && /[a-z]/.test(password) ? '✓' : '○'}
-                </span>
-                At least one lowercase letter (a-z)
+                One uppercase letter
               </li>
               <li className="flex items-center">
                 <span className={`mr-2 ${password && /\d/.test(password) ? 'text-green-400' : 'text-slate-600'}`}>
                   {password && /\d/.test(password) ? '✓' : '○'}
                 </span>
-                At least one number (0-9)
-              </li>
-              <li className="flex items-center">
-                <span className={`mr-2 ${password && /[!@#$%^&*(),.?":{}|<>]/.test(password) ? 'text-green-400' : 'text-slate-600'}`}>
-                  {password && /[!@#$%^&*(),.?":{}|<>]/.test(password) ? '✓' : '○'}
-                </span>
-                At least one special character (!@#$%^&*)
+                One number
               </li>
             </ul>
           </div>
@@ -705,8 +709,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             • Security key protection
             <br />
             • Real-time username validation
-            <br />
-            • Secure Firestore database
           </p>
         </div>
       </div>
