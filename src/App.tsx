@@ -21,6 +21,7 @@ import AdminPanel from './components/AdminPanel/index';
 import ProfileOverlay from './components/overlays/ProfileOverlay';
 import UserDetailOverlay from './components/overlays/UserDetailOverlay';
 import ReportingOverlay from './components/overlays/ReportingOverlay';
+import AccountRecovery from './components/AccountRecovery'; // ADD THIS IMPORT
 
 import { ICONS } from './constants.tsx';
 
@@ -30,7 +31,7 @@ const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as stri
 function App() {
   const [appState, setAppState] = useState<AppState>(INITIAL_DATA);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentView, setCurrentView] = useState<'auth' | 'campaigns' | 'verify' | 'wallet' | 'admin'>('auth');
+  const [currentView, setCurrentView] = useState<'auth' | 'campaigns' | 'verify' | 'wallet' | 'admin' | 'recovery'>('auth'); // ADD 'recovery'
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -147,6 +148,16 @@ function App() {
           <p className="text-slate-500 text-sm mt-2">Connecting to services</p>
         </div>
       </div>
+    );
+  }
+
+  // Recovery view (ADD THIS)
+  if (currentView === 'recovery') {
+    return (
+      <AccountRecovery
+        setCurrentView={setCurrentView}
+        showToast={showToast}
+      />
     );
   }
 
