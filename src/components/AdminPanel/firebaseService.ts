@@ -1,7 +1,8 @@
 import { 
   collection, getDocs, updateDoc, doc, query, orderBy, 
   addDoc, deleteDoc, onSnapshot, serverTimestamp, where,
-  getDoc, setDoc, increment, arrayUnion, arrayRemove
+  getDoc, setDoc, increment, arrayUnion, arrayRemove,
+  writeBatch // ✅ ADDED THIS
 } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { 
@@ -9,6 +10,200 @@ import {
   PayoutRequest, Broadcast, UserReport, AppState,
   SubmissionStatus, PayoutStatus, Platform
 } from '../../utils/types';
+
+// ========== AUTO INITIALIZATION ========== ✅ ADDED THIS SECTION
+export const firestoreInitializer = {
+  // Check and create missing collections automatically
+  initializeMissingCollections: async (adminUser: User): Promise<boolean> => {
+    try {
+      console.log('🔍 Checking Firestore collections...');
+      const batch = writeBatch(db);
+      let createdAnything = false;
+
+      // 1. Check and create config collection
+      try {
+        const configRef = doc(db, 'config', 'app-config');
+        const configSnap = await getDoc(configRef);
+        
+        if (!configSnap.exists()) {
+          batch.set(configRef, {
+            minWithdrawal: 100,
+            dailyLimit: 100000,
+            updatedAt: serverTimestamp()
+          });
+          console.log('✓ Created config collection');
+          createdAnything = true;
+        }
+      } catch (error) {
+        // Collection doesn't exist, create it
+        const configRef = doc(db, 'config', 'app-config');
+        batch.set(configRef, {
+          minWithdrawal: 100,
+          dailyLimit: 100000,
+          updatedAt: serverTimestamp()
+        });
+        console.log('✓ Created config collection (new)');
+        createdAnything = true;
+      }
+
+      // 2. Check and create cashflow collection
+      try {
+        const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
+        const cashflowSnap = await getDoc(cashflowRef);
+        
+        if (!cashflowSnap.exists()) {
+          const today = new Date();
+          const endDate = new Date(today);
+          endDate.setFullYear(today.getFullYear() + 1);
+          
+          batch.set(cashflowRef, {
+            dailyLimit: 100000,
+            todaySpent: 0,
+            startDate: today.toISOString().split('T')[0],
+            endDate: endDate.toISOString().split('T')[0],
+            updatedAt: serverTimestamp()
+          });
+          console.log('✓ Created cashflow collection');
+          createdAnything = true;
+        }
+      } catch (error) {
+        // Collection doesn't exist, create it
+        const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
+        const today = new Date();
+        const endDate = new Date(today);
+        endDate.setFullYear(today.getFullYear() + 1);
+        
+        batch.set(cashflowRef, {
+          dailyLimit: 100000,
+          todaySpent: 0,
+          startDate: today.toISOString().split('T')[0],
+          endDate: endDate.toISOString().split('T')[0],
+          updatedAt: serverTimestamp()
+        });
+        console.log('✓ Created cashflow collection (new)');
+        createdAnything = true;
+      }
+
+      // 3. Check and create admin user if doesn't exist
+      try {
+        const adminRef = doc(db, 'users', adminUser.id);
+        const adminSnap = await getDoc(adminRef);
+        
+        if (!adminSnap.exists()) {
+          batch.set(adminRef, {
+            id: adminUser.id,
+            username: adminUser.username || 'admin',
+            email: adminUser.email || 'admin@reelearn.com',
+            role: UserRole.ADMIN,
+            status: UserStatus.ACTIVE,
+            walletBalance: 10000,
+            pendingBalance: 0,
+            totalEarnings: 0,
+            joinedAt: Date.now(),
+            lastLoginAt: Date.now(),
+            readBroadcastIds: [],
+            securityKey: `admin-key-${Date.now()}`,
+            savedSocialUsername: 'admin_instagram',
+            createdAt: Date.now(),
+            updatedAt: serverTimestamp()
+          });
+          console.log('✓ Created admin user');
+          createdAnything = true;
+        }
+      } catch (error) {
+        console.log('⚠ Could not check admin user');
+      }
+
+      // 4. Check if any campaigns exist, if not create sample
+      try {
+        const campaignsSnapshot = await getDocs(collection(db, 'campaigns'));
+        if (campaignsSnapshot.empty) {
+          const campaignRef = doc(collection(db, 'campaigns'));
+          batch.set(campaignRef, {
+            id: campaignRef.id,
+            title: 'Welcome Campaign',
+            videoUrl: 'https://example.com/welcome.mp4',
+            thumbnailUrl: 'https://example.com/welcome.jpg',
+            caption: 'Welcome to ReelEarn! Start earning by creating amazing content.',
+            hashtags: '#Welcome #ReelEarn #EarnMoney',
+            audioName: 'Motivational Music',
+            goalViews: 5000,
+            goalLikes: 500,
+            basicPay: 50,
+            viralPay: 250,
+            active: true,
+            bioLink: 'https://reelearn.com',
+            createdAt: Date.now(),
+            updatedAt: serverTimestamp()
+          });
+          console.log('✓ Created sample campaign');
+          createdAnything = true;
+        }
+      } catch (error) {
+        // campaigns collection doesn't exist, it will be created when needed
+      }
+
+      // 5. Check if any broadcasts exist, if not create welcome broadcast
+      try {
+        const broadcastsSnapshot = await getDocs(collection(db, 'broadcasts'));
+        if (broadcastsSnapshot.empty) {
+          const broadcastRef = doc(collection(db, 'broadcasts'));
+          batch.set(broadcastRef, {
+            id: broadcastRef.id,
+            content: '🎉 Welcome to ReelEarn! Admin panel is now ready. Start managing your platform.',
+            senderId: adminUser.id,
+            senderName: adminUser.username || 'Admin',
+            targetUserId: null,
+            timestamp: Date.now(),
+            readBy: [],
+            createdAt: serverTimestamp()
+          });
+          console.log('✓ Created welcome broadcast');
+          createdAnything = true;
+        }
+      } catch (error) {
+        // broadcasts collection doesn't exist, it will be created when needed
+      }
+
+      if (createdAnything) {
+        await batch.commit();
+        console.log('✅ Firestore collections initialized successfully!');
+        return true;
+      } else {
+        console.log('✅ All collections already exist');
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error initializing Firestore:', error);
+      return false;
+    }
+  },
+
+  // Quick check if Firestore needs initialization
+  checkFirestoreStatus: async (): Promise<{
+    needsInitialization: boolean;
+    missingCollections: string[];
+  }> => {
+    const requiredCollections = ['config', 'cashflow'];
+    const missingCollections: string[] = [];
+
+    for (const col of requiredCollections) {
+      try {
+        const snapshot = await getDocs(collection(db, col));
+        if (snapshot.empty) {
+          missingCollections.push(col);
+        }
+      } catch (error) {
+        missingCollections.push(col);
+      }
+    }
+
+    return {
+      needsInitialization: missingCollections.length > 0,
+      missingCollections
+    };
+  }
+};
 
 // ========== USER MANAGEMENT ==========
 export const userService = {
@@ -31,6 +226,7 @@ export const userService = {
           pendingBalance: data.pendingBalance || 0,
           totalEarnings: data.totalEarnings || 0,
           joinedAt: data.joinedAt || Date.now(),
+          lastLoginAt: data.lastLoginAt || Date.now(), // ✅ ADDED THIS
           readBroadcastIds: data.readBroadcastIds || [],
           securityKey: data.securityKey || '',
           savedSocialUsername: data.savedSocialUsername || '',
@@ -39,6 +235,7 @@ export const userService = {
           password: data.password,
           failedAttempts: data.failedAttempts || 0,
           lockoutUntil: data.lockoutUntil || 0,
+          createdAt: data.createdAt || Date.now(), // ✅ ADDED THIS
         });
       });
       
@@ -108,6 +305,7 @@ export const userService = {
           pendingBalance: data.pendingBalance || 0,
           totalEarnings: data.totalEarnings || 0,
           joinedAt: data.joinedAt || Date.now(),
+          lastLoginAt: data.lastLoginAt || Date.now(), // ✅ ADDED THIS
           readBroadcastIds: data.readBroadcastIds || [],
           securityKey: data.securityKey || '',
           savedSocialUsername: data.savedSocialUsername || '',
@@ -116,6 +314,7 @@ export const userService = {
           password: data.password,
           failedAttempts: data.failedAttempts || 0,
           lockoutUntil: data.lockoutUntil || 0,
+          createdAt: data.createdAt || Date.now(), // ✅ ADDED THIS
         });
       });
       callback(usersList);
@@ -574,8 +773,10 @@ export const broadcastService = {
           id: doc.id,
           content: data.content || '',
           senderId: data.senderId || '',
+          senderName: data.senderName, // ✅ ADDED THIS
           targetUserId: data.targetUserId,
           timestamp: data.timestamp?.toDate().getTime() || Date.now(),
+          readBy: data.readBy || [], // ✅ ADDED THIS
         });
       });
       
@@ -587,13 +788,21 @@ export const broadcastService = {
   },
 
   // Create broadcast
-  createBroadcast: async (broadcastData: { content: string; senderId: string; targetUserId?: string }): Promise<string> => {
+  createBroadcast: async (broadcastData: { 
+    content: string; 
+    senderId: string; 
+    senderName?: string; // ✅ ADDED THIS
+    targetUserId?: string 
+  }): Promise<string> => {
     try {
       const broadcastRef = await addDoc(collection(db, 'broadcasts'), {
         content: broadcastData.content,
         senderId: broadcastData.senderId,
+        senderName: broadcastData.senderName, // ✅ ADDED THIS
         targetUserId: broadcastData.targetUserId || null,
         timestamp: serverTimestamp(),
+        readBy: [], // ✅ ADDED THIS
+        createdAt: serverTimestamp() // ✅ ADDED THIS
       });
       
       return broadcastRef.id;
@@ -615,8 +824,10 @@ export const broadcastService = {
             id: doc.id,
             content: data.content || '',
             senderId: data.senderId || '',
+            senderName: data.senderName, // ✅ ADDED THIS
             targetUserId: data.targetUserId,
             timestamp: data.timestamp?.toDate().getTime() || Date.now(),
+            readBy: data.readBy || [], // ✅ ADDED THIS
           });
         });
         callback(broadcastsList);
@@ -630,7 +841,7 @@ export const cashflowService = {
   // Get cashflow data
   getCashflow: async (): Promise<{ dailyLimit: number; todaySpent: number }> => {
     try {
-      const cashflowRef = doc(db, 'system', 'cashflow');
+      const cashflowRef = doc(db, 'cashflow', 'daily-cashflow'); // ✅ CHANGED from 'system' to 'cashflow'
       const cashflowSnap = await getDoc(cashflowRef);
       
       if (cashflowSnap.exists()) {
@@ -661,7 +872,7 @@ export const cashflowService = {
   // Update daily limit
   updateDailyLimit: async (dailyLimit: number): Promise<void> => {
     try {
-      await updateDoc(doc(db, 'system', 'cashflow'), {
+      await updateDoc(doc(db, 'cashflow', 'daily-cashflow'), {
         dailyLimit,
         updatedAt: serverTimestamp()
       });
@@ -674,7 +885,7 @@ export const cashflowService = {
   // Reset today's spent
   resetTodaySpent: async (): Promise<void> => {
     try {
-      await updateDoc(doc(db, 'system', 'cashflow'), {
+      await updateDoc(doc(db, 'cashflow', 'daily-cashflow'), {
         todaySpent: 0,
         startDate: new Date().toISOString().split('T')[0],
         endDate: new Date().toISOString().split('T')[0],
@@ -689,7 +900,7 @@ export const cashflowService = {
   // Update today's spent (when payout is approved)
   updateTodaySpent: async (amount: number): Promise<void> => {
     try {
-      await updateDoc(doc(db, 'system', 'cashflow'), {
+      await updateDoc(doc(db, 'cashflow', 'daily-cashflow'), {
         todaySpent: increment(amount),
         updatedAt: serverTimestamp()
       });
@@ -701,7 +912,7 @@ export const cashflowService = {
 
   // Real-time cashflow listener
   onCashflowUpdate: (callback: (cashflow: { dailyLimit: number; todaySpent: number }) => void) => {
-    return onSnapshot(doc(db, 'system', 'cashflow'), (snapshot) => {
+    return onSnapshot(doc(db, 'cashflow', 'daily-cashflow'), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
         callback({
