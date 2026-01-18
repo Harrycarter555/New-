@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
 import { sendPasswordResetEmail } from 'firebase/auth';
@@ -98,7 +98,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
       // Send password reset email
       await sendPasswordResetEmail(auth, email);
       
-      showToast('Password reset email sent! Check your inbox.', 'success');
+      showToast('✅ Password reset email sent! Check your inbox.', 'success');
       setRequestSent(true);
       
       // Generate request ID
@@ -110,11 +110,13 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
       
       let errorMessage = 'Failed to reset password. ';
       if (error.code === 'auth/user-not-found') {
-        errorMessage += 'User not found.';
+        errorMessage = 'No account found with this email.';
       } else if (error.code === 'auth/too-many-requests') {
-        errorMessage += 'Too many attempts. Try again later.';
+        errorMessage = 'Too many attempts. Try again later.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Check your connection.';
       } else {
-        errorMessage += 'Please try again.';
+        errorMessage = 'Please try again.';
       }
       
       showToast(errorMessage, 'error');
@@ -143,29 +145,12 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
         reason: 'security_key_lost',
         message: `User ${userData.username} (${userData.email}) lost security key and needs help with account recovery.`,
         createdAt: Date.now(),
-        updatedAt: Date.now(),
         requestId: `ADMIN-REQ-${Date.now().toString(36).toUpperCase()}`
       };
 
       await addDoc(requestsRef, requestData);
       
-      showToast('Request sent to admin! They will contact you soon.', 'success');
-      
-      // Auto-generate admin notification
-      const adminMsg = `🔐 ACCOUNT RECOVERY REQUEST\n\nUser: @${userData.username}\nEmail: ${userData.email}\nReason: Lost Security Key\n\nPlease contact user with recovery options.`;
-      
-      // Send to admin broadcasts
-      const broadcastRef = collection(db, 'admin_notifications');
-      await addDoc(broadcastRef, {
-        type: 'recovery_request',
-        title: 'Account Recovery Needed',
-        message: adminMsg,
-        userId: userData.id,
-        username: userData.username,
-        priority: 'high',
-        timestamp: Date.now(),
-        read: false
-      });
+      showToast('✅ Request sent to admin! They will contact you soon.', 'success');
       
     } catch (error) {
       console.error('Admin request error:', error);
@@ -173,16 +158,6 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
     } finally {
       setLoading(false);
     }
-  };
-
-  // Generate new security key (admin only - for demonstration)
-  const generateNewSecurityKey = (): string => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    let key = '';
-    for (let i = 0; i < 32; i++) {
-      key += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return `REEL-${key.substring(0, 8)}-${key.substring(8, 16)}-${key.substring(16, 24)}-${key.substring(24, 32)}`;
   };
 
   return (
@@ -201,7 +176,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
         <div className="glass-panel p-8 rounded-3xl">
           
           {/* Progress Steps */}
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center justify-between mb-6">
             {[1, 2, 3].map((num) => (
               <div key={num} className="flex flex-col items-center">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
@@ -213,9 +188,6 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                 }`}>
                   {step > num ? '✓' : num}
                 </div>
-                <span className="text-xs mt-2 text-slate-500">
-                  {num === 1 ? 'Verify Email' : num === 2 ? 'Security Key' : 'Reset'}
-                </span>
               </div>
             ))}
           </div>
@@ -224,9 +196,6 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
           {step === 1 && (
             <div className="space-y-4">
               <div className="text-center mb-4">
-                <div className="w-16 h-16 bg-cyan-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <span className="text-3xl">📧</span>
-                </div>
                 <h3 className="text-lg font-bold text-white">Enter Your Email</h3>
                 <p className="text-sm text-slate-400">We'll check if your account exists</p>
               </div>
@@ -242,20 +211,22 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                 />
               </div>
 
-              <button
-                onClick={handleVerifyEmail}
-                disabled={loading || !email.trim()}
-                className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold py-3 rounded-xl hover:opacity-90 disabled:opacity-50"
-              >
-                {loading ? 'Verifying...' : 'Verify Email'}
-              </button>
+              <div className="space-y-3">
+                <button
+                  onClick={handleVerifyEmail}
+                  disabled={loading || !email.trim()}
+                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold py-3 rounded-xl hover:opacity-90 disabled:opacity-50"
+                >
+                  {loading ? 'Verifying...' : 'Verify Email'}
+                </button>
 
-              <button
-                onClick={() => setCurrentView('auth')}
-                className="w-full text-slate-400 hover:text-white text-sm py-2"
-              >
-                ← Back to Login
-              </button>
+                <button
+                  onClick={() => setCurrentView('auth')}
+                  className="w-full text-slate-400 hover:text-white text-sm py-2"
+                >
+                  ← Back to Login
+                </button>
+              </div>
             </div>
           )}
 
@@ -263,9 +234,6 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
           {step === 2 && userData && (
             <div className="space-y-4">
               <div className="text-center mb-4">
-                <div className="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <span className="text-3xl">🔑</span>
-                </div>
                 <h3 className="text-lg font-bold text-white">Enter Security Key</h3>
                 <p className="text-sm text-slate-400">Check your saved security key</p>
                 
@@ -273,22 +241,18 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                   <p className="text-sm text-slate-300">
                     Account: <span className="font-bold text-white">@{userData.username}</span>
                   </p>
-                  <p className="text-xs text-slate-400 truncate">{userData.email}</p>
                 </div>
               </div>
 
               <div>
                 <input
                   type="text"
-                  placeholder="Enter your 32-character security key"
+                  placeholder="Enter your security key"
                   value={securityKey}
                   onChange={(e) => setSecurityKey(e.target.value)}
-                  className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono text-sm"
+                  className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
                   disabled={loading}
                 />
-                <p className="text-xs text-slate-500 mt-2">
-                  Enter the security key you saved during signup
-                </p>
               </div>
 
               <div className="space-y-3">
@@ -303,9 +267,6 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                 {/* Lost Security Key Option */}
                 <div className="p-3 bg-red-900/20 border border-red-800/30 rounded-lg">
                   <p className="text-xs text-red-400 font-bold mb-2">⚠️ Lost Security Key?</p>
-                  <p className="text-xs text-red-300 mb-2">
-                    Without your security key, automatic recovery is not possible.
-                  </p>
                   <button
                     onClick={handleRequestAdminHelp}
                     disabled={loading}
@@ -313,9 +274,6 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                   >
                     Request Admin Help
                   </button>
-                  <p className="text-xs text-red-300 mt-2">
-                    Admin will contact you via email. This may take 24-48 hours.
-                  </p>
                 </div>
 
                 <button
@@ -332,18 +290,8 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
           {step === 3 && (
             <div className="space-y-4">
               <div className="text-center mb-4">
-                <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <span className="text-3xl">🔄</span>
-                </div>
                 <h3 className="text-lg font-bold text-white">Reset Password</h3>
                 <p className="text-sm text-slate-400">Create a new strong password</p>
-                
-                <div className="mt-4 p-3 bg-green-900/20 border border-green-800/30 rounded-lg">
-                  <p className="text-sm text-green-400 font-bold">✓ Security Key Verified</p>
-                  <p className="text-xs text-green-300">
-                    Your identity has been confirmed. You can now reset your password.
-                  </p>
-                </div>
               </div>
 
               <div className="space-y-3">
@@ -367,9 +315,6 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                     className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
                     disabled={loading}
                   />
-                  {newPassword && confirmPassword && newPassword !== confirmPassword && (
-                    <p className="text-red-400 text-xs mt-1">Passwords don't match</p>
-                  )}
                 </div>
 
                 <button
@@ -393,30 +338,17 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
           {/* Request Sent Success */}
           {requestSent && (
             <div className="text-center space-y-4">
-              <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+              <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
                 <span className="text-4xl">✅</span>
               </div>
               
               <h3 className="text-xl font-bold text-white">Request Submitted!</h3>
               
               <div className="p-4 bg-slate-800/50 rounded-xl">
-                <p className="text-sm text-slate-300 mb-2">
-                  Request ID: <span className="font-mono text-cyan-400">{requestId}</span>
-                </p>
                 <p className="text-sm text-slate-300">
                   We've sent password reset instructions to: 
                   <span className="font-bold text-white"> {email}</span>
                 </p>
-              </div>
-              
-              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                <p className="text-xs text-blue-400 font-bold mb-1">📋 What to do next:</p>
-                <ul className="text-xs text-blue-300 text-left space-y-1">
-                  <li>• Check your email inbox (and spam folder)</li>
-                  <li>• Click the password reset link in the email</li>
-                  <li>• Create a new strong password</li>
-                  <li>• Login with your new password</li>
-                </ul>
               </div>
 
               <button
@@ -434,26 +366,11 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
 
         {/* Recovery Info */}
         <div className="mt-4 p-4 bg-slate-900/50 border border-slate-700 rounded-xl">
-          <p className="text-slate-400 text-xs font-bold mb-2 flex items-center">
-            <span className="mr-2">ℹ️</span> RECOVERY INFORMATION
-          </p>
-          <ul className="text-slate-500 text-xs space-y-1.5">
-            <li className="flex items-start">
-              <span className="mr-2">•</span>
-              <span><strong>Security Key</strong> is required for self-recovery</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2">•</span>
-              <span>Without security key, <strong>admin assistance</strong> is needed</span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2">•</span>
-              <span>Admin may require <strong>additional verification</strong></span>
-            </li>
-            <li className="flex items-start">
-              <span className="mr-2">•</span>
-              <span>Always save your security key in a <strong>secure place</strong></span>
-            </li>
+          <p className="text-slate-400 text-xs font-bold mb-2">ℹ️ RECOVERY INFORMATION</p>
+          <ul className="text-slate-500 text-xs space-y-1">
+            <li>• Security key is required for self-recovery</li>
+            <li>• Without key, admin assistance is needed</li>
+            <li>• Always save your security key securely</li>
           </ul>
         </div>
       </div>
