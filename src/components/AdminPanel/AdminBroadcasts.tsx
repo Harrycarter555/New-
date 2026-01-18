@@ -4,47 +4,39 @@ import { ICONS } from '../../utils/constants';
 import { User, UserRole, UserStatus } from '../../utils/types';
 
 interface AdminBroadcastsProps {
-  broadcasts: any[];
   showToast: (message: string, type: 'success' | 'error') => void;
   currentUser: User;
-  users?: User[];
 }
 
 const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ 
-  broadcasts, 
   showToast, 
-  currentUser,
-  users = []
+  currentUser
 }) => {
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [targetId, setTargetId] = useState<string>('broadcast');
   const [sending, setSending] = useState(false);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
-  const [allUsers, setAllUsers] = useState<User[]>(users);
-  const [loadingUsers, setLoadingUsers] = useState(!users.length);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [broadcasts, setBroadcasts] = useState<any[]>([]);
+  const [loadingBroadcasts, setLoadingBroadcasts] = useState(true);
 
-  // Fetch users if not passed from parent
+  // Fetch users on mount
   useEffect(() => {
     const fetchUsers = async () => {
-      if (users && users.length > 0) {
-        setAllUsers(users);
-        setLoadingUsers(false);
-        return;
-      }
-
       try {
         setLoadingUsers(true);
-        const fetchedUsers = await userService.getUsers();
-        setAllUsers(fetchedUsers as User[]);
+        const users = await userService.getUsers();
+        setAllUsers(users);
         
-        // Filter users for dropdown
-        const filteredUsers = fetchedUsers.filter((user: User) => 
+        // Filter users for dropdown (non-admin, active users)
+        const filteredUsers = users.filter(user => 
           user.id !== currentUser?.id && 
           user.role !== UserRole.ADMIN && 
           user.status === UserStatus.ACTIVE
         );
         setAvailableUsers(filteredUsers);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to fetch users:', error);
         showToast('Failed to load users', 'error');
       } finally {
@@ -53,28 +45,51 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
     };
 
     fetchUsers();
-  }, [users, currentUser]);
+  }, [currentUser, showToast]);
 
-  // Update available users when allUsers changes
+  // Fetch broadcasts on mount
   useEffect(() => {
-    if (allUsers.length > 0) {
-      const filteredUsers = allUsers.filter(user => 
-        user.id !== currentUser?.id && 
-        user.role !== UserRole.ADMIN && 
-        user.status === UserStatus.ACTIVE
-      );
-      setAvailableUsers(filteredUsers);
-    }
-  }, [allUsers, currentUser]);
+    const fetchBroadcasts = async () => {
+      try {
+        setLoadingBroadcasts(true);
+        const fetchedBroadcasts = await broadcastService.getBroadcasts();
+        setBroadcasts(fetchedBroadcasts);
+      } catch (error: any) {
+        console.error('Failed to fetch broadcasts:', error);
+        showToast('Failed to load broadcasts', 'error');
+      } finally {
+        setLoadingBroadcasts(false);
+      }
+    };
 
+    fetchBroadcasts();
+  }, [showToast]);
+
+  // Real-time listener for broadcasts
+  useEffect(() => {
+    const unsubscribe = broadcastService.onBroadcastsUpdate((updatedBroadcasts) => {
+      setBroadcasts(updatedBroadcasts);
+      setLoadingBroadcasts(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Get username by ID
   const getUsernameById = (userId: string) => {
     const user = allUsers.find(u => u.id === userId);
     return user ? `@${user.username}` : 'Unknown User';
   };
 
+  // Handle send broadcast
   const handleSendBroadcast = async () => {
     if (!broadcastMsg.trim()) {
       showToast('Message content is required', 'error');
+      return;
+    }
+
+    if (!currentUser) {
+      showToast('You must be logged in to send broadcasts', 'error');
       return;
     }
 
@@ -93,9 +108,7 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
         content: broadcastMsg.trim(),
         senderId: currentUser.id,
         senderName: currentUser.username || 'Admin',
-        targetUserId: targetId && targetId !== 'broadcast' ? targetId : undefined,
-        timestamp: Date.now(),
-        readBy: []
+        targetUserId: targetId && targetId !== 'broadcast' ? targetId : undefined
       });
 
       showToast(
@@ -116,16 +129,22 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
     }
   };
 
+  // Format date for display
   const formatDate = (timestamp: number): string => {
-    return new Date(timestamp).toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      return new Date(timestamp).toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return 'Invalid date';
+    }
   };
 
+  // Get broadcast target info
   const getBroadcastTargetInfo = (broadcast: any) => {
     if (broadcast.targetUserId) {
       const user = allUsers.find(u => u.id === broadcast.targetUserId);
@@ -140,13 +159,14 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
     };
   };
 
+  // Get non-admin users count
   const getNonAdminUsersCount = () => {
     return allUsers.filter(u => u.role !== UserRole.ADMIN).length;
   };
 
   return (
     <div className="space-y-6 p-4">
-      {/* Create Broadcast */}
+      {/* Create Broadcast Section */}
       <div className="bg-black/50 border border-slate-800 p-6 rounded-xl">
         <div className="flex items-center gap-3 mb-4">
           <ICONS.Megaphone className="w-6 h-6 text-cyan-400" />
@@ -210,7 +230,7 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
               className="w-full bg-black/30 border border-slate-700 rounded-lg p-4 text-white h-32 resize-none focus:outline-none focus:border-cyan-500"
               placeholder="Type your message here..."
               maxLength={500}
-              disabled={loadingUsers}
+              disabled={loadingUsers || sending}
             />
             <div className="flex justify-between text-xs text-slate-500 mt-1">
               <span>Max 500 characters</span>
@@ -242,11 +262,13 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
         </div>
       </div>
 
-      {/* Users Loading State */}
-      {loadingUsers && (
+      {/* Loading States */}
+      {(loadingUsers || loadingBroadcasts) && (
         <div className="text-center py-8">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-cyan-500"></div>
-          <p className="text-slate-500 text-sm mt-2">Loading users...</p>
+          <p className="text-slate-500 text-sm mt-2">
+            {loadingUsers ? 'Loading users...' : 'Loading broadcasts...'}
+          </p>
         </div>
       )}
 
@@ -259,11 +281,14 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
           </span>
         </div>
         
-        {broadcasts.length === 0 ? (
+        {!loadingBroadcasts && broadcasts.length === 0 ? (
           <div className="text-center py-12 bg-black/30 rounded-xl border border-slate-800">
             <ICONS.Message className="w-16 h-16 text-slate-700 mx-auto mb-4" />
             <p className="text-slate-500 text-sm font-bold">
               No messages sent yet
+            </p>
+            <p className="text-slate-600 text-xs mt-1">
+              Send your first broadcast above
             </p>
           </div>
         ) : (
@@ -315,6 +340,50 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({
             })}
           </div>
         )}
+      </div>
+
+      {/* Stats Card */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-slate-900/30 border border-slate-800 p-4 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Total Users</p>
+              <p className="text-2xl font-bold text-white">{getNonAdminUsersCount()}</p>
+            </div>
+            <div className="p-2 bg-cyan-500/20 rounded-lg">
+              <ICONS.Users className="w-6 h-6 text-cyan-400" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/30 border border-slate-800 p-4 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Broadcasts Sent</p>
+              <p className="text-2xl font-bold text-white">{broadcasts.length}</p>
+            </div>
+            <div className="p-2 bg-green-500/20 rounded-lg">
+              <ICONS.Megaphone className="w-6 h-6 text-green-400" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/30 border border-slate-800 p-4 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Active Now</p>
+              <p className="text-2xl font-bold text-white">
+                {allUsers.filter(u => 
+                  u.role !== UserRole.ADMIN && 
+                  u.status === UserStatus.ACTIVE
+                ).length}
+              </p>
+            </div>
+            <div className="p-2 bg-amber-500/20 rounded-lg">
+              <ICONS.Active className="w-6 h-6 text-amber-400" />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
