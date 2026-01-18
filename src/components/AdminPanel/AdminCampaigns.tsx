@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { campaignService } from './firebaseService';
 import { ICONS } from '../../utils/constants';
 
@@ -14,7 +14,7 @@ const AdminCampaigns: React.FC<AdminCampaignsProps> = ({ campaigns, showToast, c
     videoUrl: '',
     thumbnailUrl: '',
     caption: '',
-    hashtags: '#viral #trending',
+    hashtags: '#viral #trending #reels',
     audioName: '',
     goalViews: 20000,
     goalLikes: 2500,
@@ -26,10 +26,23 @@ const AdminCampaigns: React.FC<AdminCampaignsProps> = ({ campaigns, showToast, c
   const [loading, setLoading] = useState(false);
   const [videoBase64, setVideoBase64] = useState('');
   const [thumbBase64, setThumbBase64] = useState('');
+  const [activeTab, setActiveTab] = useState<'active' | 'inactive'>('active');
+  
+  // Filter campaigns based on active tab
+  const filteredCampaigns = campaigns.filter(campaign => 
+    activeTab === 'active' ? campaign.active : !campaign.active
+  );
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'video' | 'thumb') => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Validate file size (10MB for video, 5MB for image)
+    const maxSize = type === 'video' ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      showToast(`File too large. Max size: ${type === 'video' ? '10MB' : '5MB'}`, 'error');
+      return;
+    }
 
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -54,8 +67,26 @@ const AdminCampaigns: React.FC<AdminCampaignsProps> = ({ campaigns, showToast, c
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCampaign.title || !newCampaign.caption || !newCampaign.audioName) {
-      showToast('Title, caption and audio name are required', 'error');
+    
+    // Validation
+    if (!newCampaign.title.trim()) {
+      showToast('Campaign title is required', 'error');
+      return;
+    }
+    if (!newCampaign.caption.trim()) {
+      showToast('Campaign caption is required', 'error');
+      return;
+    }
+    if (!newCampaign.audioName.trim()) {
+      showToast('Audio name is required', 'error');
+      return;
+    }
+    if (!newCampaign.videoUrl.trim() && !videoBase64) {
+      showToast('Video URL or file is required', 'error');
+      return;
+    }
+    if (!newCampaign.thumbnailUrl.trim() && !thumbBase64) {
+      showToast('Thumbnail URL or file is required', 'error');
       return;
     }
 
@@ -65,21 +96,21 @@ const AdminCampaigns: React.FC<AdminCampaignsProps> = ({ campaigns, showToast, c
       const finalThumbUrl = thumbBase64 || newCampaign.thumbnailUrl;
 
       await campaignService.createCampaign({
-        title: newCampaign.title,
+        title: newCampaign.title.trim(),
         videoUrl: finalVideoUrl,
         thumbnailUrl: finalThumbUrl,
-        caption: newCampaign.caption,
-        hashtags: newCampaign.hashtags,
-        audioName: newCampaign.audioName,
+        caption: newCampaign.caption.trim(),
+        hashtags: newCampaign.hashtags.trim(),
+        audioName: newCampaign.audioName.trim(),
         goalViews: newCampaign.goalViews,
         goalLikes: newCampaign.goalLikes,
         basicPay: newCampaign.basicPay,
         viralPay: newCampaign.viralPay,
         active: true,
-        bioLink: newCampaign.bioLink
+        bioLink: newCampaign.bioLink.trim()
       }, currentUser.id);
 
-      showToast(`Campaign "${newCampaign.title}" launched successfully`, 'success');
+      showToast(`🎉 Campaign "${newCampaign.title}" created successfully!`, 'success');
       
       // Reset form
       setNewCampaign({
@@ -87,7 +118,7 @@ const AdminCampaigns: React.FC<AdminCampaignsProps> = ({ campaigns, showToast, c
         videoUrl: '',
         thumbnailUrl: '',
         caption: '',
-        hashtags: '#viral #trending',
+        hashtags: '#viral #trending #reels',
         audioName: '',
         goalViews: 20000,
         goalLikes: 2500,
@@ -98,6 +129,7 @@ const AdminCampaigns: React.FC<AdminCampaignsProps> = ({ campaigns, showToast, c
       setVideoBase64('');
       setThumbBase64('');
     } catch (error: any) {
+      console.error('Create campaign error:', error);
       showToast(error.message || 'Failed to create campaign', 'error');
     } finally {
       setLoading(false);
@@ -108,25 +140,42 @@ const AdminCampaigns: React.FC<AdminCampaignsProps> = ({ campaigns, showToast, c
     e.preventDefault();
     if (!editingCampaign) return;
 
+    // Validation
+    if (!editingCampaign.title.trim()) {
+      showToast('Campaign title is required', 'error');
+      return;
+    }
+    if (!editingCampaign.caption.trim()) {
+      showToast('Campaign caption is required', 'error');
+      return;
+    }
+    if (!editingCampaign.audioName.trim()) {
+      showToast('Audio name is required', 'error');
+      return;
+    }
+
     setLoading(true);
     try {
       await campaignService.updateCampaign(editingCampaign.id, {
-        title: editingCampaign.title,
+        title: editingCampaign.title.trim(),
         videoUrl: editingCampaign.videoUrl,
         thumbnailUrl: editingCampaign.thumbnailUrl,
-        caption: editingCampaign.caption,
-        hashtags: editingCampaign.hashtags,
-        audioName: editingCampaign.audioName,
+        caption: editingCampaign.caption.trim(),
+        hashtags: editingCampaign.hashtags.trim(),
+        audioName: editingCampaign.audioName.trim(),
         goalViews: editingCampaign.goalViews,
         goalLikes: editingCampaign.goalLikes,
         basicPay: editingCampaign.basicPay,
         viralPay: editingCampaign.viralPay,
-        bioLink: editingCampaign.bioLink
+        bioLink: editingCampaign.bioLink.trim()
       });
 
-      showToast(`Campaign "${editingCampaign.title}" updated successfully`, 'success');
+      showToast(`✅ Campaign "${editingCampaign.title}" updated successfully!`, 'success');
       setEditingCampaign(null);
+      setVideoBase64('');
+      setThumbBase64('');
     } catch (error: any) {
+      console.error('Update campaign error:', error);
       showToast(error.message || 'Failed to update campaign', 'error');
     } finally {
       setLoading(false);
@@ -134,24 +183,24 @@ const AdminCampaigns: React.FC<AdminCampaignsProps> = ({ campaigns, showToast, c
   };
 
   const toggleCampaignStatus = async (campaignId: string, currentStatus: boolean) => {
-    setLoading(true);
     try {
       await campaignService.toggleCampaignStatus(campaignId, currentStatus);
-      showToast(`Campaign ${!currentStatus ? 'activated' : 'suspended'}`, 'success');
+      showToast(
+        `Campaign ${!currentStatus ? 'activated' : 'suspended'} successfully`,
+        'success'
+      );
     } catch (error: any) {
       showToast(error.message || 'Failed to update campaign status', 'error');
-    } finally {
-      setLoading(false);
     }
   };
 
   const deleteCampaign = async (campaignId: string, campaignTitle: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${campaignTitle}"?`)) return;
+    if (!window.confirm(`Are you sure you want to delete campaign "${campaignTitle}"? This action cannot be undone.`)) return;
     
     setLoading(true);
     try {
       await campaignService.deleteCampaign(campaignId);
-      showToast('Campaign deleted successfully', 'success');
+      showToast(`🗑️ Campaign "${campaignTitle}" deleted successfully`, 'success');
     } catch (error: any) {
       showToast(error.message || 'Failed to delete campaign', 'error');
     } finally {
@@ -163,247 +212,486 @@ const AdminCampaigns: React.FC<AdminCampaignsProps> = ({ campaigns, showToast, c
     return `₹${amount.toLocaleString('en-IN')}`;
   };
 
+  const formatNumber = (num: number): string => {
+    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+    return num.toString();
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCampaign(null);
+    setVideoBase64('');
+    setThumbBase64('');
+  };
+
   return (
-    <div className="space-y-8 animate-slide">
+    <div className="space-y-8">
       {/* Create/Edit Campaign Form */}
-      <div className="glass-panel p-8 rounded-[40px] space-y-6 border-t-4 border-cyan-500 shadow-2xl">
-        <h3 className="text-xl font-black text-white italic uppercase">
-          {editingCampaign ? 'Update Mission' : 'New Mission Launch'}
-        </h3>
+      <div className="bg-black/50 border border-slate-800 p-6 rounded-3xl">
+        <div className="flex items-center gap-3 mb-6">
+          <ICONS.Campaign className="w-6 h-6 text-cyan-400" />
+          <h3 className="text-xl font-bold text-white">
+            {editingCampaign ? 'Edit Campaign' : 'Create New Campaign'}
+          </h3>
+        </div>
         
         <form onSubmit={editingCampaign ? handleUpdateCampaign : handleCreateCampaign} className="space-y-4">
-          <input
-            type="text"
-            placeholder="TARGET MISSION TITLE"
-            className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white outline-none focus:border-cyan-500 transition-all shadow-inner"
-            value={editingCampaign?.title || newCampaign.title}
-            onChange={(e) => editingCampaign 
-              ? setEditingCampaign({...editingCampaign, title: e.target.value})
-              : setNewCampaign({...newCampaign, title: e.target.value})
-            }
-            required
-          />
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
+          {/* Basic Info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Campaign Title *
+              </label>
               <input
                 type="text"
-                placeholder="VIDEO URL (MP4)"
-                className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-xs font-bold text-white shadow-inner"
-                value={editingCampaign?.videoUrl || newCampaign.videoUrl}
-                onChange={(e) => editingCampaign
-                  ? setEditingCampaign({...editingCampaign, videoUrl: e.target.value})
-                  : setNewCampaign({...newCampaign, videoUrl: e.target.value})
+                placeholder="Enter campaign title"
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                value={editingCampaign?.title || newCampaign.title}
+                onChange={(e) => editingCampaign 
+                  ? setEditingCampaign({...editingCampaign, title: e.target.value})
+                  : setNewCampaign({...newCampaign, title: e.target.value})
                 }
+                required
               />
-              <div className="p-3 bg-white/5 rounded-xl border border-white/10 flex flex-col gap-1">
-                <p className="text-[7px] text-slate-600 uppercase font-black px-1">Or Upload Video</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Audio Track Name *
+              </label>
+              <input
+                type="text"
+                placeholder="Enter audio track name"
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                value={editingCampaign?.audioName || newCampaign.audioName}
+                onChange={(e) => editingCampaign
+                  ? setEditingCampaign({...editingCampaign, audioName: e.target.value})
+                  : setNewCampaign({...newCampaign, audioName: e.target.value})
+                }
+                required
+              />
+            </div>
+          </div>
+
+          {/* Video & Thumbnail */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Video URL or File *
+              </label>
+              <div className="space-y-2">
                 <input
-                  type="file"
-                  accept="video/*"
-                  onChange={(e) => handleFileUpload(e, 'video')}
-                  className="text-[8px] text-slate-400 file:bg-cyan-500 file:border-none file:rounded-lg file:text-[8px] file:font-black file:px-2 file:py-1 cursor-pointer"
+                  type="text"
+                  placeholder="Enter video URL (MP4)"
+                  className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                  value={editingCampaign?.videoUrl || newCampaign.videoUrl}
+                  onChange={(e) => editingCampaign
+                    ? setEditingCampaign({...editingCampaign, videoUrl: e.target.value})
+                    : setNewCampaign({...newCampaign, videoUrl: e.target.value})
+                  }
                 />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">Or upload video:</span>
+                  <input
+                    type="file"
+                    accept="video/mp4,video/*"
+                    onChange={(e) => handleFileUpload(e, 'video')}
+                    className="text-xs text-slate-400 file:bg-cyan-500 file:border-none file:rounded-lg file:text-xs file:font-bold file:px-3 file:py-1 cursor-pointer"
+                  />
+                </div>
               </div>
             </div>
             
-            <div className="space-y-2">
-              <input
-                type="text"
-                placeholder="THUMB URL (JPG)"
-                className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-xs font-bold text-white shadow-inner"
-                value={editingCampaign?.thumbnailUrl || newCampaign.thumbnailUrl}
-                onChange={(e) => editingCampaign
-                  ? setEditingCampaign({...editingCampaign, thumbnailUrl: e.target.value})
-                  : setNewCampaign({...newCampaign, thumbnailUrl: e.target.value})
-                }
-              />
-              <div className="p-3 bg-white/5 rounded-xl border border-white/10 flex flex-col gap-1">
-                <p className="text-[7px] text-slate-600 uppercase font-black px-1">Or Upload Thumb</p>
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Thumbnail URL or File *
+              </label>
+              <div className="space-y-2">
                 <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handleFileUpload(e, 'thumb')}
-                  className="text-[8px] text-slate-400 file:bg-cyan-500 file:border-none file:rounded-lg file:text-[8px] file:font-black file:px-2 file:py-1 cursor-pointer"
+                  type="text"
+                  placeholder="Enter thumbnail URL (JPG/PNG)"
+                  className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                  value={editingCampaign?.thumbnailUrl || newCampaign.thumbnailUrl}
+                  onChange={(e) => editingCampaign
+                    ? setEditingCampaign({...editingCampaign, thumbnailUrl: e.target.value})
+                    : setNewCampaign({...newCampaign, thumbnailUrl: e.target.value})
+                  }
                 />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">Or upload image:</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'thumb')}
+                    className="text-xs text-slate-400 file:bg-cyan-500 file:border-none file:rounded-lg file:text-xs file:font-bold file:px-3 file:py-1 cursor-pointer"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          <input
-            type="text"
-            placeholder="REQUIRED AUDIO TRACK"
-            className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white shadow-inner"
-            value={editingCampaign?.audioName || newCampaign.audioName}
-            onChange={(e) => editingCampaign
-              ? setEditingCampaign({...editingCampaign, audioName: e.target.value})
-              : setNewCampaign({...newCampaign, audioName: e.target.value})
-            }
-            required
-          />
+          {/* Goals & Rewards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Goal Views
+              </label>
+              <input
+                type="number"
+                placeholder="Enter goal views"
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                value={editingCampaign?.goalViews || newCampaign.goalViews}
+                onChange={(e) => editingCampaign
+                  ? setEditingCampaign({...editingCampaign, goalViews: parseInt(e.target.value) || 0})
+                  : setNewCampaign({...newCampaign, goalViews: parseInt(e.target.value) || 0})
+                }
+                min="100"
+              />
+            </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <input
-              type="number"
-              placeholder="Viral View Criteria"
-              className="bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white shadow-inner"
-              value={editingCampaign?.goalViews || newCampaign.goalViews}
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Goal Likes
+              </label>
+              <input
+                type="number"
+                placeholder="Enter goal likes"
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                value={editingCampaign?.goalLikes || newCampaign.goalLikes}
+                onChange={(e) => editingCampaign
+                  ? setEditingCampaign({...editingCampaign, goalLikes: parseInt(e.target.value) || 0})
+                  : setNewCampaign({...newCampaign, goalLikes: parseInt(e.target.value) || 0})
+                }
+                min="10"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Basic Reward (₹)
+              </label>
+              <input
+                type="number"
+                placeholder="Enter basic reward amount"
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                value={editingCampaign?.basicPay || newCampaign.basicPay}
+                onChange={(e) => editingCampaign
+                  ? setEditingCampaign({...editingCampaign, basicPay: parseInt(e.target.value) || 0})
+                  : setNewCampaign({...newCampaign, basicPay: parseInt(e.target.value) || 0})
+                }
+                min="0"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Viral Bonus (₹)
+              </label>
+              <input
+                type="number"
+                placeholder="Enter viral bonus amount"
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                value={editingCampaign?.viralPay || newCampaign.viralPay}
+                onChange={(e) => editingCampaign
+                  ? setEditingCampaign({...editingCampaign, viralPay: parseInt(e.target.value) || 0})
+                  : setNewCampaign({...newCampaign, viralPay: parseInt(e.target.value) || 0})
+                }
+                min="0"
+              />
+            </div>
+          </div>
+
+          {/* Hashtags & Bio Link */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Hashtags
+              </label>
+              <input
+                type="text"
+                placeholder="Enter hashtags (comma separated)"
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                value={editingCampaign?.hashtags || newCampaign.hashtags}
+                onChange={(e) => editingCampaign
+                  ? setEditingCampaign({...editingCampaign, hashtags: e.target.value})
+                  : setNewCampaign({...newCampaign, hashtags: e.target.value})
+                }
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-300 mb-2">
+                Bio Link URL
+              </label>
+              <input
+                type="text"
+                placeholder="Enter bio link URL"
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                value={editingCampaign?.bioLink || newCampaign.bioLink}
+                onChange={(e) => editingCampaign
+                  ? setEditingCampaign({...editingCampaign, bioLink: e.target.value})
+                  : setNewCampaign({...newCampaign, bioLink: e.target.value})
+                }
+              />
+            </div>
+          </div>
+
+          {/* Caption */}
+          <div>
+            <label className="block text-sm font-bold text-slate-300 mb-2">
+              Campaign Caption *
+            </label>
+            <textarea
+              placeholder="Enter campaign caption/description"
+              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-white h-32 resize-none focus:outline-none focus:border-cyan-500"
+              value={editingCampaign?.caption || newCampaign.caption}
               onChange={(e) => editingCampaign
-                ? setEditingCampaign({...editingCampaign, goalViews: parseInt(e.target.value)})
-                : setNewCampaign({...newCampaign, goalViews: parseInt(e.target.value)})
+                ? setEditingCampaign({...editingCampaign, caption: e.target.value})
+                : setNewCampaign({...newCampaign, caption: e.target.value})
               }
-            />
-            <input
-              type="number"
-              placeholder="Viral Like Criteria"
-              className="bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white shadow-inner"
-              value={editingCampaign?.goalLikes || newCampaign.goalLikes}
-              onChange={(e) => editingCampaign
-                ? setEditingCampaign({...editingCampaign, goalLikes: parseInt(e.target.value)})
-                : setNewCampaign({...newCampaign, goalLikes: parseInt(e.target.value)})
-              }
+              required
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <input
-              type="text"
-              placeholder="HASHTAGS (#viral #reels)"
-              className="bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white shadow-inner"
-              value={editingCampaign?.hashtags || newCampaign.hashtags}
-              onChange={(e) => editingCampaign
-                ? setEditingCampaign({...editingCampaign, hashtags: e.target.value})
-                : setNewCampaign({...newCampaign, hashtags: e.target.value})
-              }
-            />
-            <input
-              type="text"
-              placeholder="BIO LINK URL"
-              className="bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white shadow-inner"
-              value={editingCampaign?.bioLink || newCampaign.bioLink}
-              onChange={(e) => editingCampaign
-                ? setEditingCampaign({...editingCampaign, bioLink: e.target.value})
-                : setNewCampaign({...newCampaign, bioLink: e.target.value})
-              }
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <input
-              type="number"
-              placeholder="Basic Reward ₹"
-              className="bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-black text-cyan-400 shadow-inner"
-              value={editingCampaign?.basicPay || newCampaign.basicPay}
-              onChange={(e) => editingCampaign
-                ? setEditingCampaign({...editingCampaign, basicPay: parseInt(e.target.value)})
-                : setNewCampaign({...newCampaign, basicPay: parseInt(e.target.value)})
-              }
-            />
-            <input
-              type="number"
-              placeholder="Viral Bonus ₹"
-              className="bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-black text-cyan-400 shadow-inner"
-              value={editingCampaign?.viralPay || newCampaign.viralPay}
-              onChange={(e) => editingCampaign
-                ? setEditingCampaign({...editingCampaign, viralPay: parseInt(e.target.value)})
-                : setNewCampaign({...newCampaign, viralPay: parseInt(e.target.value)})
-              }
-            />
-          </div>
-
-          <textarea
-            placeholder="MANDATORY DIRECTIVES"
-            className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-xs font-bold text-white h-20 resize-none shadow-inner"
-            value={editingCampaign?.caption || newCampaign.caption}
-            onChange={(e) => editingCampaign
-              ? setEditingCampaign({...editingCampaign, caption: e.target.value})
-              : setNewCampaign({...newCampaign, caption: e.target.value})
-            }
-            required
-          />
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full btn-primary py-6 rounded-[24px] font-black uppercase text-sm shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Processing...' : editingCampaign ? 'Update Mission' : 'Activate Network Mission'}
-          </button>
-          
-          {editingCampaign && (
+          {/* Action Buttons */}
+          <div className="flex gap-3">
             <button
-              type="button"
-              onClick={() => setEditingCampaign(null)}
-              className="w-full py-3 bg-white/5 text-slate-500 rounded-2xl text-[10px] font-black uppercase border border-white/10 hover:bg-white/10 transition-colors"
+              type="submit"
+              disabled={loading}
+              className="flex-1 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold py-3 rounded-xl hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
             >
-              Cancel Edit
+              {loading ? (
+                <>
+                  <span className="animate-spin">⟳</span>
+                  Processing...
+                </>
+              ) : editingCampaign ? (
+                'Update Campaign'
+              ) : (
+                'Create Campaign'
+              )}
             </button>
-          )}
+            
+            {editingCampaign && (
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                disabled={loading}
+                className="px-6 bg-slate-800 text-slate-400 font-bold py-3 rounded-xl hover:bg-slate-700 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
       {/* Campaigns List */}
-      <div className="space-y-4">
-        <h3 className="text-xl font-black text-white italic px-2">Active Missions</h3>
+      <div>
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-bold text-white">Campaigns</h3>
+          <div className="flex bg-slate-900/50 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTab('active')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                activeTab === 'active' 
+                  ? 'bg-cyan-500 text-black' 
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              Active ({campaigns.filter(c => c.active).length})
+            </button>
+            <button
+              onClick={() => setActiveTab('inactive')}
+              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                activeTab === 'inactive' 
+                  ? 'bg-cyan-500 text-black' 
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              Inactive ({campaigns.filter(c => !c.active).length})
+            </button>
+          </div>
+        </div>
         
-        {campaigns.length === 0 ? (
-          <div className="text-center py-12">
+        {filteredCampaigns.length === 0 ? (
+          <div className="text-center py-12 bg-black/30 rounded-xl border border-slate-800">
             <ICONS.Campaign className="w-16 h-16 text-slate-700 mx-auto mb-4" />
-            <p className="text-slate-600 text-sm font-black uppercase">No campaigns created yet</p>
+            <p className="text-slate-500 text-sm font-bold">
+              No {activeTab} campaigns found
+            </p>
+            {activeTab === 'inactive' && (
+              <p className="text-slate-600 text-xs mt-2">
+                All campaigns are currently active
+              </p>
+            )}
           </div>
         ) : (
-          campaigns.map(campaign => (
-            <div key={campaign.id} className="glass-panel p-4 rounded-[32px] flex justify-between items-center shadow-lg border border-white/5">
-              <div className="flex items-center gap-4">
-                <img 
-                  src={campaign.thumbnailUrl} 
-                  alt={campaign.title}
-                  className="w-12 h-12 rounded-xl object-cover"
-                />
-                <div>
-                  <p className="text-xs font-black text-white italic">{campaign.title.toUpperCase()}</p>
-                  <div className="flex gap-2 mt-1">
-                    <span className={`text-[8px] px-2 py-0.5 rounded-full ${
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredCampaigns.map(campaign => (
+              <div key={campaign.id} className="bg-black/30 border border-slate-800 rounded-xl overflow-hidden hover:border-cyan-500/30 transition-colors">
+                {/* Campaign Header */}
+                <div className="p-4 border-b border-slate-800">
+                  <div className="flex justify-between items-start mb-3">
+                    <h4 className="text-base font-bold text-white truncate">
+                      {campaign.title}
+                    </h4>
+                    <span className={`text-xs px-2 py-1 rounded-full ${
                       campaign.active 
-                        ? 'bg-green-500/20 text-green-500' 
-                        : 'bg-red-500/20 text-red-500'
+                        ? 'bg-green-500/20 text-green-400' 
+                        : 'bg-red-500/20 text-red-400'
                     }`}>
-                      {campaign.active ? 'ACTIVE' : 'INACTIVE'}
-                    </span>
-                    <span className="text-[8px] px-2 py-0.5 bg-cyan-500/20 text-cyan-500 rounded-full">
-                      {formatCurrency(campaign.basicPay)} basic
+                      {campaign.active ? 'Active' : 'Inactive'}
                     </span>
                   </div>
+                  
+                  {/* Campaign Preview */}
+                  <div className="relative rounded-lg overflow-hidden mb-3">
+                    <img 
+                      src={campaign.thumbnailUrl} 
+                      alt={campaign.title}
+                      className="w-full h-40 object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = 'https://via.placeholder.com/400x200?text=No+Thumbnail';
+                      }}
+                    />
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
+                      <p className="text-xs text-white font-bold">
+                        Audio: {campaign.audioName}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Campaign Stats */}
+                <div className="p-4 border-b border-slate-800">
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="text-center">
+                      <p className="text-xs text-slate-400 mb-1">Goal Views</p>
+                      <p className="text-sm font-bold text-white">
+                        {formatNumber(campaign.goalViews)}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-slate-400 mb-1">Goal Likes</p>
+                      <p className="text-sm font-bold text-white">
+                        {formatNumber(campaign.goalLikes)}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="text-center">
+                      <p className="text-xs text-slate-400 mb-1">Basic Reward</p>
+                      <p className="text-sm font-bold text-cyan-400">
+                        {formatCurrency(campaign.basicPay)}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-slate-400 mb-1">Viral Bonus</p>
+                      <p className="text-sm font-bold text-green-400">
+                        {formatCurrency(campaign.viralPay)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="p-4 flex gap-2">
+                  <button
+                    onClick={() => setEditingCampaign(campaign)}
+                    className="flex-1 bg-cyan-500/10 text-cyan-400 text-sm font-bold py-2 rounded-lg hover:bg-cyan-500/20 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <ICONS.Edit className="w-4 h-4" />
+                    Edit
+                  </button>
+                  
+                  <button
+                    onClick={() => toggleCampaignStatus(campaign.id, campaign.active)}
+                    className={`flex-1 text-sm font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                      campaign.active
+                        ? 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20'
+                        : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                    }`}
+                  >
+                    <ICONS.Power className="w-4 h-4" />
+                    {campaign.active ? 'Suspend' : 'Activate'}
+                  </button>
+                  
+                  <button
+                    onClick={() => deleteCampaign(campaign.id, campaign.title)}
+                    className="px-3 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors flex items-center justify-center"
+                    title="Delete campaign"
+                  >
+                    <ICONS.Trash className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setEditingCampaign(campaign)}
-                  className="text-[8px] font-black uppercase text-cyan-400 hover:scale-110 transition-all"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => toggleCampaignStatus(campaign.id, campaign.active)}
-                  disabled={loading}
-                  className={`text-[8px] font-black uppercase transition-all ${
-                    campaign.active ? 'text-orange-400' : 'text-green-400'
-                  }`}
-                >
-                  {campaign.active ? 'Suspend' : 'Activate'}
-                </button>
-                <button
-                  onClick={() => deleteCampaign(campaign.id, campaign.title)}
-                  disabled={loading}
-                  className="text-red-600 active:scale-90 disabled:opacity-50"
-                >
-                  <ICONS.X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
+      </div>
+
+      {/* Stats Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-slate-900/30 border border-slate-800 p-4 rounded-xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Total Campaigns</p>
+              <p className="text-2xl font-bold text-white">{campaigns.length}</p>
+            </div>
+            <div className="p-2 bg-cyan-500/20 rounded-lg">
+              <ICONS.Campaign className="w-6 h-6 text-cyan-400" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/30 border border-slate-800 p-4 rounded-xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Active Campaigns</p>
+              <p className="text-2xl font-bold text-green-400">
+                {campaigns.filter(c => c.active).length}
+              </p>
+            </div>
+            <div className="p-2 bg-green-500/20 rounded-lg">
+              <ICONS.Active className="w-6 h-6 text-green-400" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/30 border border-slate-800 p-4 rounded-xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Total Reward Pool</p>
+              <p className="text-2xl font-bold text-amber-400">
+                {formatCurrency(campaigns.reduce((sum, c) => sum + c.basicPay + c.viralPay, 0))}
+              </p>
+            </div>
+            <div className="p-2 bg-amber-500/20 rounded-lg">
+              <ICONS.Coins className="w-6 h-6 text-amber-400" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/30 border border-slate-800 p-4 rounded-xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Avg. Reward</p>
+              <p className="text-2xl font-bold text-purple-400">
+                {campaigns.length > 0 
+                  ? formatCurrency(Math.round(campaigns.reduce((sum, c) => sum + c.basicPay, 0) / campaigns.length))
+                  : '₹0'
+                }
+              </p>
+            </div>
+            <div className="p-2 bg-purple-500/20 rounded-lg">
+              <ICONS.Dollar className="w-6 h-6 text-purple-400" />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
