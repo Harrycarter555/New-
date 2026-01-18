@@ -2,7 +2,7 @@
 import React from 'react';
 import { Campaign } from '../types';
 import CampaignCard from './CampaignCard';
-
+import CampaignCard from './CampaignCard';
 interface CampaignListProps {
   campaigns: Campaign[];
   onSelect: (campaign: Campaign) => void;
