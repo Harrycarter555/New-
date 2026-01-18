@@ -1,4 +1,4 @@
-// src/types.ts - UPDATED VERSION
+// src/types.ts - UPDATED & UNIFIED VERSION
 
 // ========== ENUMS ==========
 export enum UserRole { 
@@ -35,30 +35,23 @@ export enum Platform {
 export interface User {
   id: string;
   username: string;
-  email: string; // Changed from optional to required
+  password?: string;
+  email: string; // REQUIRED - utils/types.ts se liya
   role: UserRole;
   status: UserStatus;
   walletBalance: number;
   pendingBalance: number;
   totalEarnings: number;
   joinedAt: number;
-  lastLoginAt: number; // ADDED THIS
+  lastLoginAt?: number; // OPTIONAL - dono ko combine kiya
   readBroadcastIds: string[];
   securityKey: string;
   failedAttempts?: number;
   lockoutUntil?: number;
   savedSocialUsername?: string;
-  payoutMethod?: {
-    type?: string;
-    details?: string;
-  }; // Changed to object
-  payoutDetails?: {
-    upiId?: string;
-    bankAccount?: string;
-    ifscCode?: string;
-    usdtAddress?: string;
-  }; // Changed to object
-  createdAt?: number; // ADDED THIS
+  payoutMethod?: 'UPI' | 'BANK' | 'USDT' | string; // src/types.ts wala version rakha
+  payoutDetails?: string; // src/types.ts wala version rakha
+  createdAt?: number; // utils/types.ts se liya
 }
 
 export interface Campaign {
@@ -104,6 +97,7 @@ export interface PayoutRequest {
   method: string;
   status: PayoutStatus;
   timestamp: number;
+  requestedAt?: number; // VdminPanel.tsx ke liye add kiya
   processedAt?: number;
   processedBy?: string;
 }
@@ -112,10 +106,12 @@ export interface Broadcast {
   id: string;
   content: string;
   senderId: string;
-  senderName?: string; // ADDED THIS
+  senderName?: string; // utils/types.ts se liya
   targetUserId?: string;
-  timestamp: number;
-  readBy?: string[]; // ADDED THIS
+  timestamp: number; // REQUIRED - AdminBroadcasts.tsx ke liye
+  readBy?: string[]; // utils/types.ts se liya
+  title?: string; // VdminPanel.tsx ke liye add kiya
+  message?: string; // VdminPanel.tsx ke liye add kiya
 }
 
 export interface UserReport {
@@ -126,6 +122,7 @@ export interface UserReport {
   status: 'open' | 'resolved';
   timestamp: number;
   resolvedAt?: number;
+  reporterId?: string; // VdminPanel.tsx ke liye add kiya
 }
 
 export interface AppLog {
@@ -215,7 +212,7 @@ export interface AdminBroadcastsProps {
   broadcasts: Broadcast[];
   showToast: (message: string, type: 'success' | 'error') => void;
   currentUser: User;
-  users?: User[]; // ADDED THIS
+  users?: User[]; // utils/types.ts se liya
 }
 
 // Form Data Types
@@ -231,11 +228,14 @@ export interface NewCampaignData {
   basicPay: number;
   viralPay: number;
   bioLink: string;
+  description?: string; // VdminPanel.tsx ke liye add kiya
 }
 
 export interface BroadcastData {
   content: string;
   targetUserId?: string;
+  title?: string; // VdminPanel.tsx ke liye add kiya
+  message?: string; // VdminPanel.tsx ke liye add kiya
 }
 
 export interface BalanceEditData {
