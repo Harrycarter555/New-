@@ -30,7 +30,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     message: string;
   } | null>(null);
   
-  // ✅ NEW: Security Key State for Signup
+  // ✅ Security Key State for Signup
   const [showGenerateKey, setShowGenerateKey] = useState(false);
   const [generatedSecurityKey, setGeneratedSecurityKey] = useState('');
   const [keyGenerated, setKeyGenerated] = useState(false);
@@ -68,6 +68,11 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     setGeneratedSecurityKey(key);
     setKeyGenerated(true);
     showToast('Security key generated! Copy and save it.', 'success');
+    
+    // Clear security key error if it exists
+    const newErrors = { ...errors };
+    delete newErrors.securityKey;
+    setErrors(newErrors);
   };
 
   // ✅ Copy to Clipboard
@@ -97,18 +102,22 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     }
   };
 
-  // Validate username and email are not same
-  const validateInputs = () => {
+  // ✅ Validate form for submission
+  const validateFormForSubmission = () => {
     const newErrors: {[key: string]: string} = {};
 
-    if (activeTab === 'signup') {
-      // Check if username and email are same
-      if (username && email && username.toLowerCase() === email.toLowerCase()) {
-        newErrors.username = 'Username and email cannot be the same';
-      }
+    // For login - only check required fields
+    if (activeTab === 'login') {
+      if (!email.trim()) newErrors.email = 'Email is required';
+      if (!password.trim()) newErrors.password = 'Password is required';
+    }
 
-      // Check if username is valid
-      if (username.length < 3) {
+    // For signup - validate all fields
+    if (activeTab === 'signup') {
+      // Username validation
+      if (!username.trim()) {
+        newErrors.username = 'Username is required';
+      } else if (username.length < 3) {
         newErrors.username = 'Username must be at least 3 characters';
       } else if (username.length > 20) {
         newErrors.username = 'Username cannot exceed 20 characters';
@@ -116,36 +125,46 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
         newErrors.username = 'Username can only contain letters, numbers, dots, hyphens and underscores';
       }
 
-      // Validate password strength
-      const passwordValidation = validatePasswordStrength(password);
-      if (!passwordValidation.isValid) {
-        newErrors.password = passwordValidation.message;
-        if (passwordValidation.issues.length > 0) {
-          newErrors.passwordDetails = passwordValidation.issues.join(', ');
+      // Email validation
+      if (!email.trim()) {
+        newErrors.email = 'Email is required';
+      } else {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          newErrors.email = 'Please enter a valid email address';
         }
       }
 
-      // Check if passwords match
-      if (password && confirmPassword && password !== confirmPassword) {
+      // Check if username and email are same
+      if (username && email && username.toLowerCase() === email.toLowerCase()) {
+        newErrors.username = 'Username and email cannot be the same';
+        newErrors.email = 'Username and email cannot be the same';
+      }
+
+      // Password validation
+      if (!password.trim()) {
+        newErrors.password = 'Password is required';
+      } else {
+        const passwordValidation = validatePasswordStrength(password);
+        if (!passwordValidation.isValid) {
+          newErrors.password = passwordValidation.message;
+          if (passwordValidation.issues.length > 0) {
+            newErrors.passwordDetails = passwordValidation.issues.join(', ');
+          }
+        }
+      }
+
+      // Confirm password
+      if (!confirmPassword.trim()) {
+        newErrors.confirmPassword = 'Please confirm your password';
+      } else if (password !== confirmPassword) {
         newErrors.confirmPassword = 'Passwords do not match';
       }
 
-      // ✅ Check if security key is generated
-      if (!keyGenerated && passwordValidation.score >= 60) {
+      // Security key validation
+      if (!keyGenerated) {
         newErrors.securityKey = 'Please generate your security key';
       }
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (email && !emailRegex.test(email)) {
-      newErrors.email = 'Please enter a valid email address';
-    }
-
-    // For login, just check if fields are filled
-    if (activeTab === 'login') {
-      if (!email.trim()) newErrors.email = 'Email is required';
-      if (!password.trim()) newErrors.password = 'Password is required';
     }
 
     setErrors(newErrors);
@@ -168,13 +187,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   // Handle Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateInputs()) {
-      if (!errors.email && !errors.password) {
-        showToast('Please check the form for errors', 'error');
-      }
-      return;
-    }
     
     try {
       setLoading(true);
@@ -258,27 +270,6 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
     const trimmedConfirmPassword = confirmPassword.trim();
-    
-    // Basic validation
-    if (!trimmedUsername || !trimmedEmail || !trimmedPassword) {
-      showToast('Please fill all required fields', 'error');
-      return;
-    }
-    
-    // Validate inputs including security key
-    if (!validateInputs()) {
-      if (errors.username || errors.email || errors.password || errors.securityKey) {
-        showToast('Please fix the errors in the form', 'error');
-      }
-      return;
-    }
-    
-    // Check if username and email are same
-    if (trimmedUsername.toLowerCase() === trimmedEmail.toLowerCase()) {
-      showToast('Username and email cannot be the same', 'error');
-      setErrors({ ...errors, username: 'Username and email cannot be the same' });
-      return;
-    }
     
     // Check if username already exists
     try {
@@ -365,10 +356,25 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Clear previous errors
+    // Clear previous general errors
     const newErrors = { ...errors };
     delete newErrors.general;
     setErrors(newErrors);
+    
+    // Validate form
+    if (!validateFormForSubmission()) {
+      // Show appropriate error message
+      if (activeTab === 'login') {
+        if (errors.email || errors.password) {
+          showToast('Please check your email and password', 'error');
+        } else {
+          showToast('Please fill in all required fields', 'error');
+        }
+      } else {
+        showToast('Please fix the errors in the form', 'error');
+      }
+      return;
+    }
     
     if (activeTab === 'login') return handleLogin(e);
     if (activeTab === 'signup') return handleSignup(e);
@@ -377,60 +383,79 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
   // Input change handlers
   const handleUsernameChange = (value: string) => {
     setUsername(value);
-    if (activeTab === 'signup') {
-      if (email && value.toLowerCase() === email.toLowerCase()) {
-        setErrors({ ...errors, username: 'Username and email cannot be the same' });
-      } else if (value.length > 0 && value.length < 3) {
-        setErrors({ ...errors, username: 'Username must be at least 3 characters' });
-      } else if (!/^[a-zA-Z0-9_.-]*$/.test(value)) {
-        setErrors({ ...errors, username: 'Only letters, numbers, dots, hyphens and underscores allowed' });
-      } else {
-        const newErrors = { ...errors };
-        delete newErrors.username;
-        setErrors(newErrors);
+    
+    // Clear error for this field
+    const newErrors = { ...errors };
+    delete newErrors.username;
+    
+    // Only validate if user has typed something
+    if (value.trim() !== '') {
+      if (value.length < 3) {
+        newErrors.username = 'Username must be at least 3 characters';
+      } else if (value.length > 20) {
+        newErrors.username = 'Username cannot exceed 20 characters';
+      } else if (!/^[a-zA-Z0-9_.-]+$/.test(value)) {
+        newErrors.username = 'Only letters, numbers, dots, hyphens and underscores allowed';
+      } else if (email && value.toLowerCase() === email.toLowerCase()) {
+        newErrors.username = 'Username and email cannot be the same';
       }
     }
+    
+    setErrors(newErrors);
   };
 
   const handleEmailChange = (value: string) => {
     setEmail(value);
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (value && !emailRegex.test(value)) {
-      setErrors({ ...errors, email: 'Please enter a valid email address' });
-    } else if (activeTab === 'signup' && username && value.toLowerCase() === username.toLowerCase()) {
-      setErrors({ ...errors, email: 'Email and username cannot be the same' });
-    } else {
-      const newErrors = { ...errors };
-      delete newErrors.email;
-      setErrors(newErrors);
+    
+    // Clear errors
+    const newErrors = { ...errors };
+    delete newErrors.email;
+    delete newErrors.general;
+    
+    // Only validate if user has typed something
+    if (value.trim() !== '') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(value)) {
+        newErrors.email = 'Please enter a valid email address';
+      } else if (activeTab === 'signup' && username && value.toLowerCase() === username.toLowerCase()) {
+        newErrors.email = 'Email and username cannot be the same';
+      }
     }
+    
+    setErrors(newErrors);
   };
 
   const handlePasswordChange = (value: string) => {
     setPassword(value);
+    
+    // Clear errors
+    const newErrors = { ...errors };
+    delete newErrors.password;
+    delete newErrors.passwordDetails;
+    
     if (activeTab === 'signup') {
-      if (value && confirmPassword && value !== confirmPassword) {
-        setErrors({ ...errors, confirmPassword: 'Passwords do not match' });
+      if (confirmPassword && value !== confirmPassword) {
+        newErrors.confirmPassword = 'Passwords do not match';
       } else {
-        const newErrors = { ...errors };
-        delete newErrors.password;
         delete newErrors.confirmPassword;
-        delete newErrors.passwordDetails;
-        delete newErrors.securityKey;
-        setErrors(newErrors);
       }
     }
+    
+    setErrors(newErrors);
   };
 
   const handleConfirmPasswordChange = (value: string) => {
     setConfirmPassword(value);
+    
+    // Clear errors
+    const newErrors = { ...errors };
+    delete newErrors.confirmPassword;
+    
     if (password && value && password !== value) {
-      setErrors({ ...errors, confirmPassword: 'Passwords do not match' });
-    } else {
-      const newErrors = { ...errors };
-      delete newErrors.confirmPassword;
-      setErrors(newErrors);
+      newErrors.confirmPassword = 'Passwords do not match';
     }
+    
+    setErrors(newErrors);
   };
 
   return (
@@ -475,10 +500,28 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
             </button>
           </div>
 
-          {/* Error message display */}
+          {/* ✅ Error message display - Improved */}
+          {(Object.keys(errors).length > 0 && errors.general === undefined) && (
+            <div className="mb-4 p-3 bg-red-900/20 border border-red-700/50 rounded-xl">
+              <p className="text-red-400 text-sm font-bold mb-2 flex items-center">
+                <span className="mr-2">⚠</span> Please fix the following:
+              </p>
+              <ul className="text-red-300 text-xs space-y-1">
+                {Object.entries(errors)
+                  .filter(([key]) => key !== 'general')
+                  .map(([key, value]) => (
+                    <li key={key}>• {value}</li>
+                  ))
+                }
+              </ul>
+            </div>
+          )}
+
           {errors.general && (
-            <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-xl animate-pulse">
-              <p className="text-red-400 text-sm font-medium">{errors.general}</p>
+            <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-xl">
+              <p className="text-red-400 text-sm font-bold flex items-center">
+                <span className="mr-2">❌</span> {errors.general}
+              </p>
             </div>
           )}
 
@@ -593,7 +636,8 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
                     <button
                       type="button"
                       onClick={handleGenerateKey}
-                      className="text-xs bg-cyan-500/20 text-cyan-400 px-3 py-1.5 rounded-lg hover:bg-cyan-500/30 flex items-center gap-1"
+                      disabled={!showGenerateKey || loading}
+                      className={`text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 ${!showGenerateKey || loading ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed' : 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30'}`}
                     >
                       <span>🔑</span> Generate Key
                     </button>
@@ -660,11 +704,11 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
               </div>
             )}
 
-            {/* Submit Button */}
+            {/* Submit Button - FIXED: No freeze issue */}
             <button
               type="submit"
-              disabled={loading || (activeTab === 'signup' && Object.keys(errors).length > 0)}
-              className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold py-4 rounded-xl hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+              disabled={loading}
+              className={`w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold py-4 rounded-xl hover:opacity-90 transition-all transform hover:scale-[1.02] active:scale-[0.98] ${loading ? 'opacity-50 cursor-not-allowed' : 'opacity-100'}`}
             >
               {loading ? (
                 <span className="flex items-center justify-center">
