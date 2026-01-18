@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { collection, query, where, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { User, UserRole, UserStatus } from '../types';
-import { sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
+import { sendPasswordResetEmail } from 'firebase/auth';
 
 interface AccountRecoveryProps {
   setCurrentView: (view: string) => void;
@@ -10,23 +10,18 @@ interface AccountRecoveryProps {
 }
 
 const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showToast }) => {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2>(1); // Simplified to 2 steps
   const [email, setEmail] = useState('');
   const [securityKey, setSecurityKey] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [userData, setUserData] = useState<User | null>(null);
   const [requestSent, setRequestSent] = useState(false);
   const [requestId, setRequestId] = useState('');
   const [error, setError] = useState<string>('');
 
-  // Clear errors
-  const clearErrors = () => setError('');
-
-  // Step 1: Verify Email
+  // Step 1: Verify Email with Firebase Auth directly
   const handleVerifyEmail = async () => {
-    clearErrors();
+    setError('');
     
     if (!email.trim()) {
       showToast('Please enter your email', 'error');
@@ -44,6 +39,65 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
 
     try {
       setLoading(true);
+      
+      // Method 1: Try to send password reset email directly
+      // This works even if Firestore rules block user query
+      await sendPasswordResetEmail(auth, email);
+      
+      showToast('✅ Password reset email sent! Check your inbox and spam folder.', 'success');
+      setRequestSent(true);
+      
+      // Generate request ID
+      const reqId = `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+      setRequestId(reqId);
+      
+      // Try to log recovery attempt (optional)
+      try {
+        const logsRef = collection(db, 'recovery_logs');
+        await addDoc(logsRef, {
+          email: email.toLowerCase().trim(),
+          requestId: reqId,
+          timestamp: Date.now(),
+          status: 'email_sent',
+          method: 'direct_reset'
+        });
+      } catch (logError) {
+        console.log('Recovery log failed (optional)', logError);
+      }
+      
+    } catch (error: any) {
+      console.error('Reset password error:', error);
+      
+      let errorMessage = '';
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email.';
+        showToast(errorMessage, 'error');
+        setError(errorMessage);
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many attempts. Try again in 15 minutes.';
+        showToast(errorMessage, 'error');
+        setError(errorMessage);
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Check your internet connection.';
+        showToast(errorMessage, 'error');
+        setError(errorMessage);
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address format.';
+        showToast(errorMessage, 'error');
+        setError(errorMessage);
+      } else {
+        // For other errors, try alternative method
+        console.log('Trying alternative method...');
+        tryAlternativeMethod();
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Alternative method: Try to get user data from Firestore
+  const tryAlternativeMethod = async () => {
+    try {
       const usersRef = collection(db, 'users');
       const q = query(usersRef, where('email', '==', email.toLowerCase().trim()));
       const querySnapshot = await getDocs(q);
@@ -64,22 +118,29 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
         return;
       }
       
+      // Set user data and move to security key step
       setUserData(user);
       setStep(2);
-      showToast('Email verified! Please enter your security key.', 'success');
+      showToast('Email verified! Please enter your security key for account verification.', 'success');
       
-    } catch (error: any) {
-      console.error('Error verifying email:', error);
-      showToast('Failed to verify email. Please try again.', 'error');
-      setError('Verification failed');
-    } finally {
-      setLoading(false);
+    } catch (firestoreError: any) {
+      console.error('Firestore error:', firestoreError);
+      
+      let errorMessage = 'Failed to verify account. ';
+      if (firestoreError.code === 'permission-denied') {
+        errorMessage = 'System error. Please contact admin directly at: admin@relearn.com';
+      } else {
+        errorMessage = 'Please try again or contact support.';
+      }
+      
+      showToast(errorMessage, 'error');
+      setError(errorMessage);
     }
   };
 
-  // Step 2: Verify Security Key
+  // Step 2: Verify Security Key (optional step if user wants to verify identity)
   const handleVerifySecurityKey = async () => {
-    clearErrors();
+    setError('');
     
     if (!securityKey.trim()) {
       showToast('Please enter your security key', 'error');
@@ -101,84 +162,21 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
       return;
     }
 
-    setStep(3);
-    showToast('Security key verified! You can now reset your password.', 'success');
-  };
-
-  // Step 3: Reset Password
-  const handleResetPassword = async () => {
-    clearErrors();
-    
-    if (!newPassword.trim()) {
-      showToast('Please enter new password', 'error');
-      setError('New password required');
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      showToast('Password must be at least 6 characters', 'error');
-      setError('Password too short (min 6 chars)');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      showToast('Passwords do not match', 'error');
-      setError('Passwords do not match');
-      return;
-    }
-
+    // Security key verified - now send reset email
     try {
       setLoading(true);
-      
-      if (!userData) {
-        showToast('User data not found', 'error');
-        return;
-      }
-
-      // Send password reset email
       await sendPasswordResetEmail(auth, userData.email);
       
-      showToast('✅ Password reset email sent! Check your inbox and spam folder.', 'success');
+      showToast('✅ Security key verified! Password reset email sent to your inbox.', 'success');
       setRequestSent(true);
       
       // Generate request ID
-      const reqId = `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+      const reqId = `REQ-SECURE-${Date.now().toString(36).toUpperCase()}`;
       setRequestId(reqId);
-      
-      // Log the recovery attempt
-      try {
-        const logsRef = collection(db, 'recovery_logs');
-        await addDoc(logsRef, {
-          userId: userData.id,
-          username: userData.username,
-          email: userData.email,
-          requestId: reqId,
-          timestamp: Date.now(),
-          status: 'email_sent',
-          step: 'password_reset'
-        });
-      } catch (logError) {
-        console.error('Failed to log recovery:', logError);
-      }
       
     } catch (error: any) {
       console.error('Reset password error:', error);
-      
-      let errorMessage = 'Failed to reset password. ';
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = 'No Firebase account found with this email.';
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = 'Too many attempts. Try again in 15 minutes.';
-      } else if (error.code === 'auth/network-request-failed') {
-        errorMessage = 'Network error. Check your internet connection.';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address.';
-      } else {
-        errorMessage = 'Please try again or contact support.';
-      }
-      
-      showToast(errorMessage, 'error');
-      setError(errorMessage);
+      showToast('Failed to send reset email. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -186,13 +184,14 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
 
   // Request Admin Help (when security key is lost)
   const handleRequestAdminHelp = async () => {
-    clearErrors();
+    setError('');
     
-    if (!userData) {
-      showToast('User data not found', 'error');
-      setError('User data missing');
+    if (!userData && !email.trim()) {
+      showToast('Please enter your email first', 'error');
       return;
     }
+
+    const userEmail = userData?.email || email;
 
     try {
       setLoading(true);
@@ -200,31 +199,60 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
       // Create recovery request in database
       const requestsRef = collection(db, 'recovery_requests');
       const requestData = {
-        userId: userData.id,
-        username: userData.username,
-        email: userData.email,
+        email: userEmail.toLowerCase(),
         status: 'pending',
         reason: 'security_key_lost',
-        message: `User ${userData.username} (${userData.email}) lost security key and needs help with account recovery.`,
+        message: `User needs help with account recovery. Email: ${userEmail}`,
         createdAt: Date.now(),
-        requestId: `ADMIN-REQ-${Date.now().toString(36).toUpperCase()}`,
-        userEmail: userData.email,
+        requestId: `ADMIN-${Date.now().toString(36).toUpperCase()}`,
         timestamp: Date.now()
       };
 
       await addDoc(requestsRef, requestData);
       
-      showToast('✅ Request sent to admin! They will contact you via email.', 'success');
+      showToast('✅ Help request sent to admin! They will contact you via email.', 'success');
       setRequestSent(true);
-      
-      // Generate request ID
-      const reqId = requestData.requestId;
-      setRequestId(reqId);
+      setRequestId(requestData.requestId);
       
     } catch (error: any) {
       console.error('Admin request error:', error);
-      showToast('Failed to send request. Please try again.', 'error');
-      setError('Request failed');
+      
+      if (error.code === 'permission-denied') {
+        showToast('System error. Please email admin directly at: admin@relearn.com', 'error');
+        setError('Please email: admin@relearn.com');
+      } else {
+        showToast('Failed to send request. Please try again.', 'error');
+        setError('Request failed');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Direct Password Reset (Alternative flow)
+  const handleDirectPasswordReset = async () => {
+    setError('');
+    
+    if (!email.trim()) {
+      showToast('Please enter your email first', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await sendPasswordResetEmail(auth, email);
+      showToast('✅ Password reset email sent! Check your inbox.', 'success');
+      setRequestSent(true);
+    } catch (error: any) {
+      console.error('Direct reset error:', error);
+      
+      if (error.code === 'auth/user-not-found') {
+        showToast('No account found with this email', 'error');
+        setError('Account not found');
+      } else {
+        showToast('Failed to send reset email', 'error');
+        setError('Reset failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -234,8 +262,6 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
   const resetForm = () => {
     setEmail('');
     setSecurityKey('');
-    setNewPassword('');
-    setConfirmPassword('');
     setUserData(null);
     setRequestSent(false);
     setRequestId('');
@@ -260,7 +286,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
           
           {/* Progress Steps */}
           <div className="flex items-center justify-between mb-6">
-            {[1, 2, 3].map((num) => (
+            {[1, 2].map((num) => (
               <div key={num} className="flex flex-col items-center">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all duration-300 ${
                   step === num 
@@ -272,7 +298,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                   {step > num ? '✓' : num}
                 </div>
                 <span className="text-xs mt-1 text-slate-500">
-                  {num === 1 ? 'Email' : num === 2 ? 'Key' : 'Reset'}
+                  {num === 1 ? 'Email' : 'Verify'}
                 </span>
               </div>
             ))}
@@ -280,7 +306,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
 
           {/* Error Display */}
           {error && (
-            <div className="mb-4 p-3 bg-red-900/30 border border-red-700/50 rounded-xl animate-pulse">
+            <div className="mb-4 p-3 bg-red-900/30 border border-red-700/50 rounded-xl">
               <p className="text-red-400 text-sm font-bold flex items-center">
                 <span className="mr-2">⚠</span> {error}
               </p>
@@ -291,8 +317,8 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
           {step === 1 && !requestSent && (
             <div className="space-y-4">
               <div className="text-center mb-4">
-                <h3 className="text-lg font-bold text-white">Enter Your Email</h3>
-                <p className="text-sm text-slate-400">We'll check if your account exists</p>
+                <h3 className="text-lg font-bold text-white">Reset Your Password</h3>
+                <p className="text-sm text-slate-400">Enter your email to receive reset link</p>
               </div>
 
               <div>
@@ -302,7 +328,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
-                    clearErrors();
+                    setError('');
                   }}
                   className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors disabled:opacity-50"
                   disabled={loading}
@@ -318,9 +344,9 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                 >
                   {loading ? (
                     <span className="flex items-center justify-center">
-                      <span className="animate-spin mr-2">⟳</span> Verifying...
+                      <span className="animate-spin mr-2">⟳</span> Sending Reset Link...
                     </span>
-                  ) : 'Verify Email'}
+                  ) : 'Send Reset Link'}
                 </button>
 
                 <button
@@ -334,19 +360,19 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
             </div>
           )}
 
-          {/* Step 2: Security Key Verification */}
+          {/* Step 2: Security Key Verification (Optional) */}
           {step === 2 && userData && !requestSent && (
             <div className="space-y-4">
               <div className="text-center mb-4">
-                <h3 className="text-lg font-bold text-white">Enter Security Key</h3>
-                <p className="text-sm text-slate-400">Check your saved security key</p>
+                <h3 className="text-lg font-bold text-white">Verify Identity</h3>
+                <p className="text-sm text-slate-400">Enter security key for additional verification</p>
                 
                 <div className="mt-4 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
                   <p className="text-sm text-slate-300">
                     Account: <span className="font-bold text-white">@{userData.username}</span>
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Joined: {new Date(userData.joinedAt).toLocaleDateString()}
+                    This step is optional but recommended for security
                   </p>
                 </div>
               </div>
@@ -354,11 +380,11 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
               <div>
                 <input
                   type="text"
-                  placeholder="Enter your security key (case-insensitive)"
+                  placeholder="Enter your security key (if available)"
                   value={securityKey}
                   onChange={(e) => {
                     setSecurityKey(e.target.value);
-                    clearErrors();
+                    setError('');
                   }}
                   className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors disabled:opacity-50"
                   disabled={loading}
@@ -376,15 +402,21 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                     <span className="flex items-center justify-center">
                       <span className="animate-spin mr-2">⟳</span> Verifying...
                     </span>
-                  ) : 'Verify Security Key'}
+                  ) : 'Verify & Reset Password'}
+                </button>
+
+                {/* Skip security key option */}
+                <button
+                  onClick={handleDirectPasswordReset}
+                  disabled={loading}
+                  className="w-full bg-slate-800/50 border border-slate-700 text-white font-bold py-3 rounded-xl hover:bg-slate-700/50 transition-colors disabled:opacity-50"
+                >
+                  Skip & Reset Password Directly
                 </button>
 
                 {/* Lost Security Key Option */}
                 <div className="p-3 bg-red-900/20 border border-red-800/30 rounded-lg">
-                  <p className="text-xs text-red-400 font-bold mb-2">⚠️ Lost Security Key?</p>
-                  <p className="text-xs text-red-300 mb-3">
-                    Don't worry! Admin can help you recover your account.
-                  </p>
+                  <p className="text-xs text-red-400 font-bold mb-2">⚠️ Don't have security key?</p>
                   <button
                     onClick={handleRequestAdminHelp}
                     disabled={loading}
@@ -397,7 +429,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                 <button
                   onClick={() => {
                     setStep(1);
-                    clearErrors();
+                    setError('');
                   }}
                   className="w-full text-slate-400 hover:text-white text-sm py-2 transition-colors"
                   disabled={loading}
@@ -408,111 +440,31 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
             </div>
           )}
 
-          {/* Step 3: Reset Password */}
-          {step === 3 && userData && !requestSent && (
-            <div className="space-y-4">
-              <div className="text-center mb-4">
-                <h3 className="text-lg font-bold text-white">Reset Password</h3>
-                <p className="text-sm text-slate-400">Create a new strong password</p>
-                
-                <div className="mt-3 p-3 bg-slate-800/30 rounded-lg">
-                  <p className="text-sm text-slate-300">
-                    Account: <span className="font-bold text-white">@{userData.username}</span>
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <input
-                    type="password"
-                    placeholder="New password (min 6 characters)"
-                    value={newPassword}
-                    onChange={(e) => {
-                      setNewPassword(e.target.value);
-                      clearErrors();
-                    }}
-                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors disabled:opacity-50"
-                    disabled={loading}
-                  />
-                  {newPassword && newPassword.length < 6 && (
-                    <p className="text-red-400 text-xs mt-1 ml-1">Password must be at least 6 characters</p>
-                  )}
-                </div>
-
-                <div>
-                  <input
-                    type="password"
-                    placeholder="Confirm new password"
-                    value={confirmPassword}
-                    onChange={(e) => {
-                      setConfirmPassword(e.target.value);
-                      clearErrors();
-                    }}
-                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors disabled:opacity-50"
-                    disabled={loading}
-                    onKeyPress={(e) => e.key === 'Enter' && handleResetPassword()}
-                  />
-                  {confirmPassword && newPassword !== confirmPassword && (
-                    <p className="text-red-400 text-xs mt-1 ml-1">Passwords do not match</p>
-                  )}
-                  {confirmPassword && newPassword === confirmPassword && newPassword.length >= 6 && (
-                    <p className="text-green-400 text-xs mt-1 ml-1">✓ Passwords match</p>
-                  )}
-                </div>
-
-                <button
-                  onClick={handleResetPassword}
-                  disabled={loading || !newPassword || !confirmPassword || newPassword !== confirmPassword || newPassword.length < 6}
-                  className={`w-full bg-gradient-to-r from-green-500 to-emerald-600 text-black font-bold py-3 rounded-xl transition-all ${loading || !newPassword || !confirmPassword || newPassword !== confirmPassword || newPassword.length < 6 ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]'}`}
-                >
-                  {loading ? (
-                    <span className="flex items-center justify-center">
-                      <span className="animate-spin mr-2">⟳</span> Processing...
-                    </span>
-                  ) : 'Reset Password'}
-                </button>
-
-                <button
-                  onClick={() => {
-                    setStep(2);
-                    clearErrors();
-                  }}
-                  className="w-full text-slate-400 hover:text-white text-sm py-2 transition-colors"
-                  disabled={loading}
-                >
-                  ← Back to Security Key
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Request Sent Success */}
           {requestSent && (
             <div className="text-center space-y-4">
-              <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3 animate-pulse">
+              <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
                 <span className="text-4xl">✅</span>
               </div>
               
-              <h3 className="text-xl font-bold text-white">Request Submitted!</h3>
+              <h3 className="text-xl font-bold text-white">Reset Link Sent!</h3>
               
               <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
-                <div className="mb-3">
-                  <p className="text-sm text-slate-300">
-                    <span className="font-bold text-white">Request ID:</span> {requestId}
-                  </p>
-                </div>
+                {requestId && (
+                  <div className="mb-3">
+                    <p className="text-sm text-slate-300">
+                      <span className="font-bold text-white">Reference:</span> {requestId}
+                    </p>
+                  </div>
+                )}
                 <p className="text-sm text-slate-300">
-                  {step === 3 
-                    ? `Password reset email sent to: ${email}`
-                    : `Admin request sent for: ${userData?.username || email}`
-                  }
+                  Password reset email sent to: <span className="font-bold text-white">{email}</span>
                 </p>
                 <p className="text-xs text-slate-500 mt-2">
-                  {step === 3 
-                    ? 'Check your inbox (and spam folder) for reset link'
-                    : 'Admin will contact you via email within 24 hours'
-                  }
+                  Check your inbox (and spam folder) for the reset link
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Link expires in 1 hour
                 </p>
               </div>
 
@@ -521,7 +473,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                   onClick={() => {
                     resetForm();
                     setCurrentView('auth');
-                    showToast('Please check your email for next steps', 'info');
+                    showToast('Please check your email for reset link', 'info');
                   }}
                   className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black font-bold py-3 rounded-xl hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98]"
                 >
@@ -532,7 +484,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
                   onClick={resetForm}
                   className="w-full text-slate-400 hover:text-white text-sm py-2 transition-colors"
                 >
-                  Start New Recovery
+                  Reset Another Account
                 </button>
               </div>
             </div>
@@ -542,24 +494,24 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ setCurrentView, showT
         {/* Recovery Info */}
         <div className="mt-4 p-4 bg-slate-900/50 border border-slate-700 rounded-xl">
           <p className="text-slate-400 text-xs font-bold mb-2 flex items-center">
-            <span className="mr-2">ℹ️</span> RECOVERY INFORMATION
+            <span className="mr-2">ℹ️</span> IMPORTANT INFORMATION
           </p>
           <ul className="text-slate-500 text-xs space-y-1.5">
             <li className="flex items-start">
               <span className="mr-2">•</span>
-              <span>Security key is required for self-recovery</span>
+              <span>Reset link will be sent to your registered email</span>
             </li>
             <li className="flex items-start">
               <span className="mr-2">•</span>
-              <span>Without key, admin assistance is needed</span>
+              <span>Check spam folder if you don't see the email</span>
             </li>
             <li className="flex items-start">
               <span className="mr-2">•</span>
-              <span>Always save your security key securely</span>
+              <span>Reset link expires in 1 hour</span>
             </li>
             <li className="flex items-start">
               <span className="mr-2">•</span>
-              <span>Check spam folder for reset emails</span>
+              <span>Need help? Email: admin@relearn.com</span>
             </li>
           </ul>
         </div>
