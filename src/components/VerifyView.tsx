@@ -1,7 +1,9 @@
-// src/components/VerifyView.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppState, User, Platform, SubmissionStatus } from '../types';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { collection, addDoc, updateDoc, doc, increment, serverTimestamp } from 'firebase/firestore';
+import { db } from '../firebase';
+import { ICONS } from '../constants';
 
 interface VerifyViewProps {
   currentUser: User;
@@ -27,12 +29,16 @@ const VerifyView: React.FC<VerifyViewProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState('');
 
+  // Filter only active campaigns
+  const activeCampaigns = appState.campaigns.filter(c => c.active);
+
   const toggleCampaign = (id: string) => {
     setSelectedVerifyCampaigns(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
 
+  // ✅ UPDATED: Now uses Firestore for real-time sync
   const handleVerifySubmit = async () => {
     if (!handleInput) return showToast('Username required', 'error');
     if (selectedVerifyCampaigns.length === 0) return showToast('Select at least one mission', 'error');
@@ -43,18 +49,17 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     setIsAnalyzing(true);
     setAnalysisStep("AI INITIALIZING...");
 
-    await new Promise(r => setTimeout(r, 800));
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const successfulSubmissions = [];
 
-    let allVerified = true;
-    const finalSubmissions: any[] = [];
+      for (const cid of selectedVerifyCampaigns) {
+        const campaign = activeCampaigns.find(c => c.id === cid);
+        if (!campaign) continue;
 
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        setAnalysisStep(`VERIFYING: ${campaign.title.toUpperCase()}...`);
 
-    for (const cid of selectedVerifyCampaigns) {
-      const campaign = appState.campaigns.find(c => c.id === cid)!;
-      setAnalysisStep(`VERIFYING: ${campaign.title.toUpperCase()}...`);
-
-      const prompt = `
+        const prompt = `
 Verification Task:
 Reel Link: ${links[cid]}
 Target Username: @${handleInput}
@@ -72,16 +77,15 @@ Check:
 Respond ONLY with "SUCCESS" if valid, or ONE sentence mistake in Hinglish if invalid.
 `;
 
-      try {
         const result = await model.generateContent(prompt);
         const response = (await result.response).text().trim().toUpperCase();
 
         if (response.includes("SUCCESS")) {
-          finalSubmissions.push({
-            id: `sub-\( {Date.now()}- \){cid}`,
+          // ✅ Save to Firestore (REAL-TIME)
+          const submissionRef = await addDoc(collection(db, 'submissions'), {
             userId: currentUser.id,
             username: currentUser.username,
-            socialUsername: `\( {platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/@'} \){handleInput}`,
+            socialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${handleInput}`,
             campaignId: cid,
             campaignTitle: campaign.title,
             platform,
@@ -89,43 +93,60 @@ Respond ONLY with "SUCCESS" if valid, or ONE sentence mistake in Hinglish if inv
             timestamp: Date.now(),
             rewardAmount: campaign.basicPay,
             externalLink: links[cid],
+            isViralBonus: false,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+
+          // ✅ Update user's pending balance in Firestore
+          await updateDoc(doc(db, 'users', currentUser.id), {
+            pendingBalance: increment(campaign.basicPay),
+            savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${handleInput}`,
+            updatedAt: serverTimestamp()
+          });
+
+          successfulSubmissions.push({
+            id: submissionRef.id,
+            campaignTitle: campaign.title,
+            amount: campaign.basicPay
           });
         } else {
-          allVerified = false;
-          showToast(`\( {campaign.title}: \){response}`, 'error');
-          break;
+          showToast(`${campaign.title}: ${response}`, 'error');
+          setIsAnalyzing(false);
+          return;
         }
-      } catch (err) {
-        console.error(err);
-        showToast("AI verification failed. Try again.", 'error');
-        allVerified = false;
-        break;
       }
+
+      if (successfulSubmissions.length > 0) {
+        setAnalysisStep("LOGGING PAYOUT DATA...");
+        
+        // Update local state for immediate UI feedback
+        setAppState(prev => ({
+          ...prev,
+          users: prev.users.map(u =>
+            u.id === currentUser.id
+              ? {
+                  ...u,
+                  pendingBalance: u.pendingBalance + successfulSubmissions.reduce((acc, s) => acc + s.amount, 0),
+                  savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${handleInput}`,
+                }
+              : u
+          ),
+        }));
+
+        showToast(`✅ ${successfulSubmissions.length} submission(s) verified and queued for payout`, 'success');
+        
+        // Reset form
+        setSelectedVerifyCampaigns([]);
+        setLinks({});
+        setHandleInput(currentUser.savedSocialUsername?.split('/@')[1] || '');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast("AI verification failed. Try again.", 'error');
+    } finally {
+      setIsAnalyzing(false);
     }
-
-    if (allVerified && finalSubmissions.length > 0) {
-      setAnalysisStep("LOGGING PAYOUT DATA...");
-      await new Promise(r => setTimeout(r, 600));
-
-      setAppState(prev => ({
-        ...prev,
-        submissions: [...finalSubmissions, ...prev.submissions],
-        users: prev.users.map(u =>
-          u.id === currentUser.id
-            ? {
-                ...u,
-                pendingBalance: u.pendingBalance + finalSubmissions.reduce((acc: number, s: any) => acc + s.rewardAmount, 0),
-                savedSocialUsername: finalSubmissions[0].socialUsername,
-              }
-            : u
-        ),
-      }));
-
-      showToast('VERIFIED: Sent to Payout Queue', 'success');
-      // setCurrentView('campaigns'); // agar App se pass kar rahe ho toh
-    }
-
-    setIsAnalyzing(false);
   };
 
   return (
@@ -157,7 +178,7 @@ Respond ONLY with "SUCCESS" if valid, or ONE sentence mistake in Hinglish if inv
           1. Selection
         </p>
         <div className="flex gap-4 overflow-x-auto hide-scrollbar py-2 px-2">
-          {appState.campaigns.filter(c => c.active).map(c => (
+          {activeCampaigns.map(c => (
             <div
               key={c.id}
               onClick={() => toggleCampaign(c.id)}
@@ -218,7 +239,7 @@ Respond ONLY with "SUCCESS" if valid, or ONE sentence mistake in Hinglish if inv
               3. URL Link Verification
             </p>
             {selectedVerifyCampaigns.map(cid => {
-              const camp = appState.campaigns.find(c => c.id === cid);
+              const camp = activeCampaigns.find(c => c.id === cid);
               return (
                 <div key={cid} className="space-y-2">
                   <p className="text-[8px] font-black text-cyan-500 uppercase px-4 italic">
@@ -238,9 +259,10 @@ Respond ONLY with "SUCCESS" if valid, or ONE sentence mistake in Hinglish if inv
 
         <button
           onClick={handleVerifySubmit}
-          className="w-full py-7 bg-cyan-500 text-black rounded-[40px] font-black uppercase tracking-[0.4em] text-lg shadow-2xl active:scale-95 transition-all"
+          disabled={isAnalyzing}
+          className="w-full py-7 bg-cyan-500 text-black rounded-[40px] font-black uppercase tracking-[0.4em] text-lg shadow-2xl active:scale-95 transition-all disabled:opacity-50"
         >
-          START VERIFICATION
+          {isAnalyzing ? 'VERIFYING...' : 'START VERIFICATION'}
         </button>
       </div>
     </div>
