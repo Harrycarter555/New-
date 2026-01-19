@@ -1,4 +1,7 @@
-// src/types.ts - UPDATED & UNIFIED VERSION
+// src/types.ts
+// UPDATED & FIXED VERSION (January 19, 2026)
+
+import React from 'react';
 
 // ========== ENUMS ==========
 export enum UserRole { 
@@ -36,22 +39,22 @@ export interface User {
   id: string;
   username: string;
   password?: string;
-  email: string; // REQUIRED - utils/types.ts se liya
+  email: string;
   role: UserRole;
   status: UserStatus;
   walletBalance: number;
   pendingBalance: number;
   totalEarnings: number;
   joinedAt: number;
-  lastLoginAt?: number; // OPTIONAL - dono ko combine kiya
+  lastLoginAt?: number;
   readBroadcastIds: string[];
   securityKey: string;
   failedAttempts?: number;
   lockoutUntil?: number;
   savedSocialUsername?: string;
-  payoutMethod?: 'UPI' | 'BANK' | 'USDT' | string; // src/types.ts wala version rakha
-  payoutDetails?: string; // src/types.ts wala version rakha
-  createdAt?: number; // utils/types.ts se liya
+  payoutMethod?: 'UPI' | 'BANK' | 'USDT' | string;
+  payoutDetails?: string;
+  createdAt?: number;
 }
 
 export interface Campaign {
@@ -69,6 +72,8 @@ export interface Campaign {
   active: boolean;
   bioLink: string;
   createdAt?: number;
+  description?: string;
+  requirements?: string[];         // ← ADDED: To fix constants.tsx error
 }
 
 export interface Submission {
@@ -97,7 +102,7 @@ export interface PayoutRequest {
   method: string;
   status: PayoutStatus;
   timestamp: number;
-  requestedAt?: number; // VdminPanel.tsx ke liye add kiya
+  requestedAt?: number;
   processedAt?: number;
   processedBy?: string;
 }
@@ -106,12 +111,14 @@ export interface Broadcast {
   id: string;
   content: string;
   senderId: string;
-  senderName?: string; // utils/types.ts se liya
+  senderName?: string;
   targetUserId?: string;
-  timestamp: number; // REQUIRED - AdminBroadcasts.tsx ke liye
-  readBy?: string[]; // utils/types.ts se liya
-  title?: string; // VdminPanel.tsx ke liye add kiya
-  message?: string; // VdminPanel.tsx ke liye add kiya
+  timestamp: number;
+  readBy?: string[];
+  title?: string;
+  message?: string;
+  createdAt?: number;
+  createdBy?: string;             // ← ADDED: To fix constants.tsx error
 }
 
 export interface UserReport {
@@ -122,7 +129,7 @@ export interface UserReport {
   status: 'open' | 'resolved';
   timestamp: number;
   resolvedAt?: number;
-  reporterId?: string; // VdminPanel.tsx ke liye add kiya
+  reporterId?: string;
 }
 
 export interface AppLog {
@@ -169,10 +176,15 @@ export type AdminTab =
 
 export type PayoutSubTab = 'payouts' | 'verifications';
 
+// View union type (for setCurrentView)
+export type AppView = "admin" | "auth" | "verify" | "campaigns" | "recovery" | "wallet";
+
 // Props Types
 export interface AdminPanelProps {
   currentUser: User;
-  showToast: (message: string, type: 'success' | 'error') => void;
+  showToast: (message: string, type?: 'success' | 'error') => void;
+  appState: AppState;                                    // ← MADE REQUIRED to match App.tsx logic
+  setAppState: React.Dispatch<React.SetStateAction<AppState>>;  // ← MADE REQUIRED
 }
 
 export interface AdminDashboardProps {
@@ -212,35 +224,19 @@ export interface AdminBroadcastsProps {
   broadcasts: Broadcast[];
   showToast: (message: string, type: 'success' | 'error') => void;
   currentUser: User;
-  users?: User[]; // utils/types.ts se liya
+  users?: User[];
 }
 
-// Form Data Types
-export interface NewCampaignData {
-  title: string;
-  videoUrl: string;
-  thumbnailUrl: string;
-  caption: string;
-  hashtags: string;
-  audioName: string;
-  goalViews: number;
-  goalLikes: number;
-  basicPay: number;
-  viralPay: number;
-  bioLink: string;
-  description?: string; // VdminPanel.tsx ke liye add kiya
+// Auth & Recovery Props (type-safe setCurrentView)
+export interface AccountRecoveryProps {
+  setCurrentView: (view: AppView) => void;
+  showToast: (message: string, type: 'success' | 'error') => void;
 }
 
-export interface BroadcastData {
-  content: string;
-  targetUserId?: string;
-  title?: string; // VdminPanel.tsx ke liye add kiya
-  message?: string; // VdminPanel.tsx ke liye add kiya
-}
-
-export interface BalanceEditData {
-  amount: string;
-  type: 'add' | 'deduct';
+export interface AuthViewProps {
+  setCurrentUser: (user: User | null) => void;
+  setCurrentView: (view: AppView) => void;
+  showToast: (message: string, type: 'success' | 'error') => void;
 }
 
 // Statistics Types
@@ -260,41 +256,4 @@ export interface DashboardStats {
   pendingCashflow: number;
   dailyLimit: number;
   todaySpent: number;
-}
-
-// Real-time Update Types
-export interface RealTimeUpdate {
-  type: 'users' | 'campaigns' | 'payouts' | 'submissions' | 'reports' | 'broadcasts' | 'cashflow';
-  data: any;
-  timestamp: number;
-}
-
-// Admin Action Types
-export type AdminAction = 
-  | 'user_status_update'
-  | 'user_balance_update'
-  | 'campaign_create'
-  | 'campaign_update'
-  | 'campaign_delete'
-  | 'payout_approve'
-  | 'payout_reject'
-  | 'submission_approve'
-  | 'submission_reject'
-  | 'report_resolve'
-  | 'report_delete'
-  | 'broadcast_send'
-  | 'cashflow_update';
-
-// Admin Log Entry
-export interface AdminLog {
-  id: string;
-  adminId: string;
-  adminUsername: string;
-  action: AdminAction;
-  targetId?: string;
-  targetUsername?: string;
-  details: string;
-  timestamp: number;
-  ipAddress?: string;
-  userAgent?: string;
 }
