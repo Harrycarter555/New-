@@ -7,64 +7,11 @@ import {
 import { db } from '../../firebase';
 import { 
   User, UserRole, UserStatus, Campaign, Submission, 
-  PayoutRequest, Broadcast, UserReport, AppState,
-  SubmissionStatus, PayoutStatus, Platform
-} from '../../types'; // Path check kar lena (../../utils/types bhi ho sakta hai)
+  PayoutRequest, Broadcast, UserReport,
+  SubmissionStatus, PayoutStatus
+} from '../../utils/types';
 
-// ========== AUTO INITIALIZATION ==========
-export const firestoreInitializer = {
-  initializeMissingCollections: async (adminUser: User): Promise<boolean> => {
-    try {
-      console.log('🔍 Checking Firestore collections...');
-      const batch = writeBatch(db);
-      let createdAnything = false;
-
-      // 1. Config Check
-      const configRef = doc(db, 'config', 'app-config');
-      const configSnap = await getDoc(configRef);
-      if (!configSnap.exists()) {
-        batch.set(configRef, { minWithdrawal: 100, dailyLimit: 100000, updatedAt: serverTimestamp() });
-        createdAnything = true;
-      }
-
-      // 2. Cashflow Check
-      const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
-      const cashflowSnap = await getDoc(cashflowRef);
-      if (!cashflowSnap.exists()) {
-        const today = new Date().toISOString().split('T')[0];
-        batch.set(cashflowRef, { dailyLimit: 100000, todaySpent: 0, startDate: today, endDate: today, updatedAt: serverTimestamp() });
-        createdAnything = true;
-      }
-
-      // 3. Admin User Check
-      const adminRef = doc(db, 'users', adminUser.id);
-      const adminSnap = await getDoc(adminRef);
-      if (!adminSnap.exists()) {
-        batch.set(adminRef, {
-          ...adminUser,
-          role: UserRole.ADMIN,
-          status: UserStatus.ACTIVE,
-          walletBalance: 10000,
-          joinedAt: Date.now(),
-          createdAt: Date.now(),
-          updatedAt: serverTimestamp()
-        });
-        createdAnything = true;
-      }
-
-      if (createdAnything) {
-        await batch.commit();
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('❌ Init Error:', error);
-      return false;
-    }
-  }
-};
-
-// ========== USER MANAGEMENT ==========
+// ========== 1. USER MANAGEMENT ==========
 export const userService = {
   getUsers: async (): Promise<User[]> => {
     const snap = await getDocs(collection(db, 'users'));
@@ -73,13 +20,6 @@ export const userService = {
   updateUserStatus: async (userId: string, status: UserStatus) => {
     await updateDoc(doc(db, 'users', userId), { status, updatedAt: serverTimestamp() });
   },
-  updateUserBalance: async (userId: string, amount: number, type: 'add' | 'deduct') => {
-    const userRef = doc(db, 'users', userId);
-    const updates = type === 'add' 
-      ? { walletBalance: increment(amount), totalEarnings: increment(amount) }
-      : { walletBalance: increment(-amount) };
-    await updateDoc(userRef, { ...updates, updatedAt: serverTimestamp() });
-  },
   onUsersUpdate: (callback: (users: User[]) => void) => {
     return onSnapshot(collection(db, 'users'), (snap) => {
       callback(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
@@ -87,7 +27,7 @@ export const userService = {
   }
 };
 
-// ========== CAMPAIGN MANAGEMENT ==========
+// ========== 2. CAMPAIGN MANAGEMENT ==========
 export const campaignService = {
   getCampaigns: async (): Promise<Campaign[]> => {
     const q = query(collection(db, 'campaigns'), orderBy('createdAt', 'desc'));
@@ -95,7 +35,7 @@ export const campaignService = {
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign));
   },
   createCampaign: async (data: any, creatorId: string) => {
-    return addDoc(collection(db, 'campaigns'), { ...data, createdBy: creatorId, createdAt: Date.now(), updatedAt: serverTimestamp() });
+    return addDoc(collection(db, 'campaigns'), { ...data, createdBy: creatorId, createdAt: Date.now() });
   },
   updateCampaign: async (id: string, updates: Partial<Campaign>) => {
     await updateDoc(doc(db, 'campaigns', id), { ...updates, updatedAt: serverTimestamp() });
@@ -111,7 +51,7 @@ export const campaignService = {
   }
 };
 
-// ========== SUBMISSION MANAGEMENT ==========
+// ========== 3. SUBMISSION MANAGEMENT ==========
 export const submissionService = {
   approveSubmission: async (submissionId: string, adminId: string) => {
     const subRef = doc(db, 'submissions', submissionId);
@@ -144,7 +84,7 @@ export const submissionService = {
   }
 };
 
-// ========== PAYOUT MANAGEMENT ==========
+// ========== 4. PAYOUT MANAGEMENT ==========
 export const payoutService = {
   approvePayout: async (payoutId: string, adminId: string) => {
     const payoutRef = doc(db, 'payouts', payoutId);
@@ -160,10 +100,6 @@ export const payoutService = {
   rejectPayout: async (payoutId: string, adminId: string) => {
     await updateDoc(doc(db, 'payouts', payoutId), { status: PayoutStatus.REJECTED, processedBy: adminId, processedAt: serverTimestamp() });
   },
-  getPayouts: async () => {
-    const snap = await getDocs(query(collection(db, 'payouts'), orderBy('timestamp', 'desc')));
-    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PayoutRequest));
-  },
   onPayoutsUpdate: (callback: (data: PayoutRequest[]) => void) => {
     return onSnapshot(query(collection(db, 'payouts'), orderBy('timestamp', 'desc')), (snap) => {
       callback(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PayoutRequest)));
@@ -171,17 +107,17 @@ export const payoutService = {
   }
 };
 
-// ========== CASHFLOW MANAGEMENT ==========
+// ========== 5. CASHFLOW MANAGEMENT ==========
 export const cashflowService = {
   getCashflow: async () => {
     const snap = await getDoc(doc(db, 'cashflow', 'daily-cashflow'));
     return snap.exists() ? snap.data() : { dailyLimit: 100000, todaySpent: 0 };
   },
-  updateDailyLimit: async (limit: number) => {
-    await updateDoc(doc(db, 'cashflow', 'daily-cashflow'), { dailyLimit: limit, updatedAt: serverTimestamp() });
-  },
   resetTodaySpent: async () => {
     await updateDoc(doc(db, 'cashflow', 'daily-cashflow'), { todaySpent: 0, updatedAt: serverTimestamp() });
+  },
+  updateDailyLimit: async (limit: number) => {
+    await updateDoc(doc(db, 'cashflow', 'daily-cashflow'), { dailyLimit: limit, updatedAt: serverTimestamp() });
   },
   onCashflowUpdate: (callback: (data: any) => void) => {
     return onSnapshot(doc(db, 'cashflow', 'daily-cashflow'), (snap) => {
@@ -190,12 +126,8 @@ export const cashflowService = {
   }
 };
 
-// ========== REPORTS & BROADCASTS ==========
+// ========== 6. REPORTS & BROADCASTS ==========
 export const reportService = {
-  getReports: async () => {
-    const snap = await getDocs(query(collection(db, 'reports'), orderBy('timestamp', 'desc')));
-    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserReport));
-  },
   resolveReport: async (id: string, adminId: string) => {
     await updateDoc(doc(db, 'reports', id), { status: 'resolved', resolvedBy: adminId, resolvedAt: serverTimestamp() });
   },
@@ -215,26 +147,5 @@ export const broadcastService = {
     return onSnapshot(query(collection(db, 'broadcasts'), orderBy('timestamp', 'desc')), (snap) => {
       callback(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Broadcast)));
     });
-  }
-};
-
-// ========== STATISTICS ==========
-export const statsService = {
-  getDashboardStats: async () => {
-    const [uSnap, cSnap, pSnap, sSnap] = await Promise.all([
-      getDocs(collection(db, 'users')),
-      getDocs(collection(db, 'campaigns')),
-      getDocs(collection(db, 'payouts')),
-      getDocs(collection(db, 'submissions'))
-    ]);
-    const users = uSnap.docs.map(d => d.data() as User).filter(u => u.role !== UserRole.ADMIN);
-    return {
-      totalUsers: users.length,
-      activeUsers: users.filter(u => u.status === UserStatus.ACTIVE).length,
-      totalBalance: users.reduce((s, u) => s + (u.walletBalance || 0), 0),
-      pendingPayouts: pSnap.docs.filter(d => d.data().status === PayoutStatus.PENDING).length,
-      activeCampaigns: cSnap.docs.filter(d => d.data().active).length,
-      pendingSubmissions: sSnap.docs.filter(d => d.data().status === SubmissionStatus.PENDING).length
-    };
   }
 };
