@@ -7,7 +7,7 @@ import {
   AppState, User, Campaign, UserRole, UserStatus 
 } from './types.ts';
 
-import { loadAppState, saveAppState } from './utils/firebaseState';
+import { loadAppState } from './utils/firebaseState';
 import { INITIAL_DATA } from './constants.tsx';
 import { auth, db } from './firebase';
 
@@ -29,23 +29,29 @@ const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as stri
 function App() {
   const [appState, setAppState] = useState<AppState>(INITIAL_DATA);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentView, setCurrentView] = useState<'auth' | 'home' | 'verify' | 'wallet' | 'admin' | 'recovery'>('auth');
+  const [currentView, setCurrentView] = useState<'auth' | 'campaigns' | 'verify' | 'wallet' | 'admin' | 'recovery'>('auth'); // ✅ Changed 'home' to 'campaigns'
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // ✅ REAL-TIME DATA STATES
   const [userCampaigns, setUserCampaigns] = useState<Campaign[]>([]);
   const [userStats, setUserStats] = useState({
     totalActive: 0,
     totalRewardPool: 0,
-    unreadMessages: 0,
-    pendingSubmissions: 0
+    pendingBalance: 0,
+    walletBalance: 0
   });
+  const [userBroadcasts, setUserBroadcasts] = useState<any[]>([]);
+  const [userSubmissions, setUserSubmissions] = useState<any[]>([]);
 
   // Refs for cleanup
   const authUnsubscribeRef = useRef<(() => void) | null>(null);
   const campaignsUnsubscribeRef = useRef<(() => void) | null>(null);
   const userUnsubscribeRef = useRef<(() => void) | null>(null);
+  const broadcastsUnsubscribeRef = useRef<(() => void) | null>(null);
+  const submissionsUnsubscribeRef = useRef<(() => void) | null>(null);
 
   // Toast helper
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
@@ -56,7 +62,7 @@ function App() {
 
   // ==================== REAL-TIME LISTENERS ====================
 
-  // Setup real-time campaigns listener
+  // ✅ Setup real-time campaigns listener (FOR USERS)
   useEffect(() => {
     if (!currentUser || currentUser.role === UserRole.ADMIN) return;
 
@@ -109,7 +115,7 @@ function App() {
     };
   }, [currentUser]);
 
-  // Setup real-time user status listener
+  // ✅ Setup real-time user status & data listener
   useEffect(() => {
     if (!currentUser) return;
 
@@ -119,22 +125,81 @@ function App() {
       if (snapshot.exists()) {
         const updatedUser = snapshot.data() as User;
         
-        // Check if user got suspended
+        // ✅ Check if user got suspended (ADMIN ACTION IMPACT)
         if (updatedUser.status === UserStatus.SUSPENDED || updatedUser.status === UserStatus.BANNED) {
           showToast('Your account has been suspended. Please contact admin.', 'error');
           setTimeout(() => {
             handleLogout();
           }, 3000);
+          return;
         }
         
-        // Update current user data
+        // ✅ Update user data (when admin changes balance, etc.)
         setCurrentUser(updatedUser);
+        setUserStats(prev => ({
+          ...prev,
+          pendingBalance: updatedUser.pendingBalance || 0,
+          walletBalance: updatedUser.walletBalance || 0
+        }));
       }
     });
 
     return () => {
       if (userUnsubscribeRef.current) {
         userUnsubscribeRef.current();
+      }
+    };
+  }, [currentUser, showToast]);
+
+  // ✅ Setup real-time broadcasts listener (ADMIN BROADCAST IMPACT)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const broadcastsRef = collection(db, 'broadcasts');
+    const q = query(
+      broadcastsRef,
+      where('targetUserId', 'in', [currentUser.id, null]), // User-specific OR broadcast to all
+      orderBy('timestamp', 'desc'),
+      limit(20)
+    );
+
+    broadcastsUnsubscribeRef.current = onSnapshot(q, (snapshot) => {
+      const broadcastsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setUserBroadcasts(broadcastsData);
+    });
+
+    return () => {
+      if (broadcastsUnsubscribeRef.current) {
+        broadcastsUnsubscribeRef.current();
+      }
+    };
+  }, [currentUser]);
+
+  // ✅ Setup real-time submissions listener
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const submissionsRef = collection(db, 'submissions');
+    const q = query(
+      submissionsRef,
+      where('userId', '==', currentUser.id),
+      orderBy('timestamp', 'desc')
+    );
+
+    submissionsUnsubscribeRef.current = onSnapshot(q, (snapshot) => {
+      const submissionsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setUserSubmissions(submissionsData);
+    });
+
+    return () => {
+      if (submissionsUnsubscribeRef.current) {
+        submissionsUnsubscribeRef.current();
       }
     };
   }, [currentUser]);
@@ -177,7 +242,7 @@ function App() {
             const userData = userDoc.data() as User;
             console.log('✅ User found:', userData.username);
             
-            // Check if user is not suspended
+            // ✅ Check if user is not suspended (ADMIN ACTION CHECK)
             if (userData.status === UserStatus.SUSPENDED || userData.status === UserStatus.BANNED) {
               showToast('Your account is suspended. Please contact admin.', 'error');
               await signOut(auth);
@@ -192,8 +257,15 @@ function App() {
             };
             
             setCurrentUser(safeUserData);
-            setCurrentView(safeUserData.role === UserRole.ADMIN ? 'admin' : 'home');
+            setCurrentView(safeUserData.role === UserRole.ADMIN ? 'admin' : 'campaigns'); // ✅ Changed 'home' to 'campaigns'
             showToast(`Welcome ${safeUserData.username}!`, 'success');
+            
+            // Set initial stats
+            setUserStats(prev => ({
+              ...prev,
+              pendingBalance: safeUserData.pendingBalance || 0,
+              walletBalance: safeUserData.walletBalance || 0
+            }));
           } else {
             console.log('⚠️ User doc not found, staying in auth view');
             showToast('User account not found. Please sign up.', 'error');
@@ -206,6 +278,11 @@ function App() {
         console.log('👤 No user logged in');
         setCurrentUser(null);
         setCurrentView('auth');
+        
+        // Cleanup real-time listeners
+        setUserCampaigns([]);
+        setUserBroadcasts([]);
+        setUserSubmissions([]);
       }
     });
 
@@ -220,14 +297,18 @@ function App() {
   // Logout handler
   const handleLogout = useCallback(async () => {
     try {
-      // Cleanup listeners
+      // Cleanup all listeners
       if (campaignsUnsubscribeRef.current) campaignsUnsubscribeRef.current();
       if (userUnsubscribeRef.current) userUnsubscribeRef.current();
+      if (broadcastsUnsubscribeRef.current) broadcastsUnsubscribeRef.current();
+      if (submissionsUnsubscribeRef.current) submissionsUnsubscribeRef.current();
       
       await signOut(auth);
       setCurrentUser(null);
       setCurrentView('auth');
       setUserCampaigns([]);
+      setUserBroadcasts([]);
+      setUserSubmissions([]);
       showToast('Logged out successfully', 'success');
     } catch (error) {
       console.error('Logout error:', error);
@@ -283,22 +364,22 @@ function App() {
     return null;
   }
 
-  // ==================== USER DASHBOARD COMPONENT ====================
-  const UserDashboard = () => (
+  // ==================== CAMPAIGNS PAGE (MAIN USER PAGE) ====================
+  const CampaignsPage = () => (
     <div className="space-y-10 pb-20">
       {/* Welcome Header */}
       <div className="mb-8">
         <h1 className="text-4xl font-black italic uppercase tracking-tighter text-white">
-          WELCOME<br/>
-          <span className="text-cyan-400">@{currentUser.username}</span>
+          LIVE<br/>
+          <span className="text-cyan-400">CAMPAIGNS</span>
         </h1>
         <p className="text-slate-400 text-sm mt-2">
           Complete missions and earn rewards
         </p>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* Quick Stats - Shows real-time updates */}
+      <div className="grid grid-cols-2 gap-4">
         <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
           <p className="text-xs text-slate-400 uppercase tracking-widest">Active Missions</p>
           <p className="text-2xl font-bold text-white">{userStats.totalActive}</p>
@@ -309,7 +390,11 @@ function App() {
         </div>
         <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
           <p className="text-xs text-slate-400 uppercase tracking-widest">Pending</p>
-          <p className="text-2xl font-bold text-cyan-400">₹{currentUser.pendingBalance.toLocaleString()}</p>
+          <p className="text-2xl font-bold text-cyan-400">₹{userStats.pendingBalance.toLocaleString()}</p>
+        </div>
+        <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+          <p className="text-xs text-slate-400 uppercase tracking-widest">Wallet</p>
+          <p className="text-2xl font-bold text-white">₹{userStats.walletBalance.toLocaleString()}</p>
         </div>
       </div>
 
@@ -338,25 +423,51 @@ function App() {
         </button>
       </div>
 
-      {/* Campaigns List */}
-      <div className="mt-10">
+      {/* Unread Messages Badge */}
+      {userBroadcasts.filter(b => {
+        const readIds = currentUser.readBroadcastIds || [];
+        return !readIds.includes(b.id);
+      }).length > 0 && (
+        <div 
+          className="p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl flex items-center gap-3 cursor-pointer hover:bg-cyan-500/20 transition-colors"
+          onClick={() => setCurrentView('wallet')}
+        >
+          <div className="w-10 h-10 bg-cyan-500/20 rounded-full flex items-center justify-center">
+            <ICONS.Message className="w-5 h-5 text-cyan-400" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white">New Messages</p>
+            <p className="text-xs text-cyan-400">
+              {userBroadcasts.filter(b => !(currentUser.readBroadcastIds || []).includes(b.id)).length} unread
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Campaigns List - REAL-TIME from Firebase */}
+      <div className="mt-8">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">
-            LIVE MISSIONS
+            AVAILABLE MISSIONS
           </h2>
-          <button
-            onClick={() => setCurrentView('wallet')}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-500/10 text-cyan-400 rounded-xl hover:bg-cyan-500/20 transition-colors"
-          >
-            <ICONS.Wallet className="w-4 h-4" />
-            Wallet
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">
+              {userCampaigns.length} active
+            </span>
+            <button
+              onClick={() => setCurrentView('wallet')}
+              className="flex items-center gap-2 px-4 py-2 bg-cyan-500/10 text-cyan-400 rounded-xl hover:bg-cyan-500/20 transition-colors"
+            >
+              <ICONS.Wallet className="w-4 h-4" />
+              Wallet
+            </button>
+          </div>
         </div>
 
         {userCampaigns.length === 0 ? (
           <div className="text-center py-20 border border-slate-800 rounded-2xl bg-black/50">
             <ICONS.Campaign className="w-20 h-20 text-slate-700 mx-auto mb-4" />
-            <h3 className="text-xl font-bold text-slate-400 mb-2">No Active Missions</h3>
+            <h3 className="text-xl font-bold text-slate-400 mb-2">No Active Campaigns</h3>
             <p className="text-slate-600 text-sm">
               Check back later for new missions
             </p>
@@ -368,6 +479,22 @@ function App() {
           />
         )}
       </div>
+
+      {/* Pending Submissions */}
+      {userSubmissions.filter(s => s.status === 'pending' || s.status === 'viral_claim').length > 0 && (
+        <div className="mt-8 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+          <div className="flex items-center gap-3 mb-2">
+            <ICONS.Clock className="w-5 h-5 text-amber-400" />
+            <h3 className="font-bold text-white">Pending Submissions</h3>
+          </div>
+          <p className="text-sm text-amber-400">
+            {userSubmissions.filter(s => s.status === 'pending' || s.status === 'viral_claim').length} submissions awaiting approval
+          </p>
+          <p className="text-xs text-slate-400 mt-1">
+            Admin will review and approve shortly
+          </p>
+        </div>
+      )}
     </div>
   );
 
@@ -388,12 +515,7 @@ function App() {
         unreadCount={
           currentUser.role === UserRole.ADMIN
             ? appState.reports.filter(r => r.status === 'open').length
-            : appState.broadcasts.filter(m => {
-                const readIds = currentUser.readBroadcastIds || [];
-                const isTargeted = !m.targetUserId || m.targetUserId === currentUser.id;
-                const isUnread = !readIds.includes(m.id);
-                return isTargeted && isUnread;
-              }).length
+            : userBroadcasts.filter(b => !(currentUser.readBroadcastIds || []).includes(b.id)).length
         }
       />
 
@@ -412,7 +534,7 @@ function App() {
 
       {/* Main Content */}
       <main className="px-5 max-w-lg mx-auto min-h-[calc(100vh-180px)]">
-        {currentView === 'home' && <UserDashboard />}
+        {currentView === 'campaigns' && <CampaignsPage />}
 
         {currentView === 'verify' && (
           <VerifyView
@@ -446,13 +568,13 @@ function App() {
       {/* Bottom Navigation */}
       <nav className="fixed bottom-6 left-4 right-4 z-50 bg-gray-900/90 backdrop-blur-xl p-4 rounded-[48px] border border-gray-800 flex justify-between items-center">
         <button
-          onClick={() => setCurrentView('home')}
+          onClick={() => setCurrentView('campaigns')}
           className={`flex-1 flex flex-col items-center py-2 transition-all ${
-            currentView === 'home' ? 'text-cyan-400 scale-110' : 'text-gray-500'
+            currentView === 'campaigns' ? 'text-cyan-400 scale-110' : 'text-gray-500'
           }`}
         >
           <ICONS.Home className="w-6 h-6" />
-          <span className="text-xs font-bold mt-1">Home</span>
+          <span className="text-xs font-bold mt-1">Campaigns</span>
         </button>
 
         <button
