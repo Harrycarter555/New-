@@ -10,10 +10,14 @@ import { userService, campaignService, payoutService, submissionService, reportS
 import { User, UserRole, AdminPanelProps, AdminTab, Broadcast } from '../../types';
 import { ICONS } from '../../constants';
 
+// ... existing imports
+
 const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appState, setAppState }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [payoutSubTab, setPayoutSubTab] = useState<'payouts' | 'verifications'>('payouts');
-  const [loading, setLoading] = useState(true);
+  
+  // 1. Loading ko sirf pehli baar ke liye rakhein
+  const [initialLoading, setInitialLoading] = useState(true);
   
   const [users, setUsers] = useState<User[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
@@ -23,43 +27,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [cashflow, setCashflow] = useState({ dailyLimit: 100000, todaySpent: 0 });
 
-  if (currentUser.role !== UserRole.ADMIN) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-black">
-        <div className="text-center p-10">
-          <ICONS.X className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-black text-white">ACCESS DENIED</h2>
-        </div>
-      </div>
-    );
-  }
-
+  // 2. Real-time listeners hi data handle karenge (Fastest Method)
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        switch (activeTab) {
-          case 'members': setUsers(await userService.getUsers()); break;
-          case 'campaigns': setCampaigns(await campaignService.getCampaigns()); break;
-          case 'payouts':
-            const [p, s] = await Promise.all([payoutService.getPayouts(), submissionService.getSubmissions()]);
-            setPayouts(p); setSubmissions(s);
-            break;
-          case 'reports': setReports(await reportService.getReports()); break;
-          case 'broadcasts': setBroadcasts(await broadcastService.getBroadcasts()); break;
-          case 'cashflow': setCashflow(await cashflowService.getCashflow()); break;
-        }
-      } catch (error: any) {
-        showToast(error.message || 'Load failed', 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
-  }, [activeTab, showToast]);
-
-  useEffect(() => {
-    const unsubUsers = userService.onUsersUpdate(setUsers);
+    // Ye listeners background mein data update karte rahenge bina loading screen dikhaye
+    const unsubUsers = userService.onUsersUpdate((data) => { setUsers(data); setInitialLoading(false); });
     const unsubCampaigns = campaignService.onCampaignsUpdate(setCampaigns);
     const unsubPayouts = payoutService.onPayoutsUpdate(setPayouts);
     const unsubSubs = submissionService.onSubmissionsUpdate(setSubmissions);
@@ -73,8 +44,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
     };
   }, []);
 
+  if (currentUser.role !== UserRole.ADMIN) {
+    return <div className="text-white p-10">ACCESS DENIED</div>;
+  }
+
   return (
     <div className="space-y-10 pb-40 animate-slide">
+      {/* Header & Tabs logic remains same */}
       <div className="px-4">
         <h2 className="text-4xl font-black italic text-white uppercase leading-none">
           ADMIN<span className="text-cyan-400">COMMAND</span>
@@ -87,7 +63,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`whitespace-nowrap flex-1 px-5 py-3 rounded-2xl text-[9px] font-black uppercase transition-all ${
-              activeTab === tab ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500 hover:text-slate-300'
+              activeTab === tab ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500'
             }`}
           >
             {tab}
@@ -96,8 +72,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
       </div>
 
       <div className="min-h-[60vh] px-4">
-        {loading && activeTab !== 'dashboard' ? (
-          <div className="flex justify-center py-20 animate-pulse text-cyan-500 font-bold">LOADING...</div>
+        {/* 3. Sirf first time total loading dikhayenge, switch par nahi */}
+        {initialLoading ? (
+          <div className="flex flex-col justify-center items-center py-20">
+            <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-cyan-500 font-bold mt-4 tracking-tighter">SYNCING DATABASE...</p>
+          </div>
         ) : (
           <>
             {activeTab === 'dashboard' && <AdminDashboard showToast={showToast} />}
