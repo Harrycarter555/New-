@@ -186,6 +186,25 @@ export const ICONS = {
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </svg>
   ),
+
+  // 🔥 MISSING ICONS ADDED BELOW 🔥
+  CheckCircle: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+
+  Coins: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 8a3 3 0 10-6 0m6.364 8.364l-2.121 2.121M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+
+  Clock: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
 };
 
 export const INITIAL_DATA: AppState = {
@@ -237,7 +256,13 @@ export const INITIAL_DATA: AppState = {
       basicPay: 50.00,
       viralPay: 250.00,
       active: true,
-      bioLink: 'reelearn.vip/mission/c-1'
+      bioLink: 'reelearn.vip/mission/c-1',
+      // Adding missing properties
+      description: 'High-speed neon drifting showcase',
+      requirements: ['Post on Instagram', 'Use hashtags', 'Tag @reelearn'],
+      reward: 50.00,
+      duration: 7,
+      tags: ['drift', 'cars', 'neon']
     }
   ],
   submissions: [],
@@ -247,7 +272,13 @@ export const INITIAL_DATA: AppState = {
       id: 'm-1', 
       content: 'Welcome to ReelEarn Pro! Check your missions and start earning.', 
       senderId: 'admin-1', 
-      timestamp: Date.now() 
+      timestamp: Date.now(),
+      // Adding missing property
+      createdAt: Date.now(),
+      title: 'Welcome Message',
+      message: 'Welcome to ReelEarn Pro! Check your missions and start earning.',
+      createdBy: 'admin-1',
+      status: 'active'
     }
   ],
   reports: [],
