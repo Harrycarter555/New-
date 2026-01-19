@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { broadcastService, userService } from './firebaseService';
-import { ICONS } from '../../utils/constants'; 
-import { User, UserRole, UserStatus, Broadcast } from '../../utils/types';
+import { ICONS } from '../../constants'; // Or wherever your constants are
+import { User, UserRole, UserStatus, Broadcast } from '../../types';
 
 interface AdminBroadcastsProps {
   broadcasts: Broadcast[];
@@ -49,7 +49,7 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ broadcasts, showToast
   return (
     <div className="space-y-6">
       <div className="bg-white/5 border border-white/10 p-6 rounded-3xl">
-        {/* ✅ FIXED: Megaphone replaced with Campaign icon */}
+        {/* ✅ FIXED: Megaphone replaced with Campaign */}
         <h3 className="text-white font-black mb-4 flex items-center gap-2">
           <ICONS.Campaign className="w-5 h-5 text-cyan-400"/> NEW MESSAGE
         </h3>
