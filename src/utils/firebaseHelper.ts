@@ -1,13 +1,14 @@
 import { 
   collection, query, where, onSnapshot,
   getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc,
-  serverTimestamp, increment, orderBy, writeBatch, arrayUnion
+  serverTimestamp, increment, orderBy, writeBatch, arrayUnion,
+  limit // ✅ Added missing import
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { 
   User, Campaign, Submission, PayoutRequest, 
   UserStatus, SubmissionStatus, PayoutStatus 
-} from './types';
+} from '../types'; // Updated path to match usual structure
 
 // ==================== SHARED CAMPAIGN SERVICE ====================
 export const campaignHelper = {
@@ -238,7 +239,7 @@ export const broadcastHelper = {
     const broadcastsRef = collection(db, 'broadcasts');
     const q = query(
       broadcastsRef,
-      where('targetUserId', 'in', [userId, null]), // Specific ya broadcast
+      where('targetUserId', 'in', [userId, null]), 
       orderBy('timestamp', 'desc')
     );
     
@@ -261,7 +262,6 @@ export const broadcastHelper = {
   // ✅ Get unread broadcasts count
   getUnreadBroadcastsCount: async (userId: string): Promise<number> => {
     try {
-      // First get user's read broadcast IDs
       const userRef = doc(db, 'users', userId);
       const userSnap = await getDoc(userRef);
       
@@ -270,7 +270,6 @@ export const broadcastHelper = {
       const userData = userSnap.data() as User;
       const readIds = userData.readBroadcastIds || [];
       
-      // Get all broadcasts targeted to this user
       const broadcastsRef = collection(db, 'broadcasts');
       const q = query(
         broadcastsRef,
@@ -278,9 +277,7 @@ export const broadcastHelper = {
       );
       
       const snapshot = await getDocs(q);
-      const totalBroadcasts = snapshot.size;
       
-      // Count how many are not in readIds
       let unreadCount = 0;
       snapshot.forEach(doc => {
         if (!readIds.includes(doc.id)) {
@@ -298,7 +295,6 @@ export const broadcastHelper = {
 
 // ==================== REAL-TIME SYNC MANAGER ====================
 export const syncManager = {
-  // ✅ Initialize all real-time listeners for a user
   initUserListeners: (userId: string, callbacks: {
     onCampaignsUpdate?: (campaigns: Campaign[]) => void;
     onUserUpdate?: (user: User) => void;
@@ -306,15 +302,13 @@ export const syncManager = {
     onPayoutsUpdate?: (payouts: PayoutRequest[]) => void;
     onBroadcastsUpdate?: (broadcasts: any[]) => void;
   }) => {
-    const unsubscribeFunctions = [];
+    const unsubscribeFunctions: (() => void)[] = [];
     
-    // Campaigns listener
     if (callbacks.onCampaignsUpdate) {
       const unsubscribe = campaignHelper.onActiveCampaignsUpdate(callbacks.onCampaignsUpdate);
       unsubscribeFunctions.push(unsubscribe);
     }
     
-    // User status listener
     if (callbacks.onUserUpdate) {
       const unsubscribe = onSnapshot(doc(db, 'users', userId), (snap) => {
         if (snap.exists()) {
@@ -324,7 +318,6 @@ export const syncManager = {
       unsubscribeFunctions.push(unsubscribe);
     }
     
-    // Submissions listener
     if (callbacks.onSubmissionsUpdate) {
       const submissionsRef = collection(db, 'submissions');
       const q = query(submissionsRef, where('userId', '==', userId), orderBy('timestamp', 'desc'));
@@ -338,7 +331,6 @@ export const syncManager = {
       unsubscribeFunctions.push(unsubscribe);
     }
     
-    // Payouts listener
     if (callbacks.onPayoutsUpdate) {
       const payoutsRef = collection(db, 'payouts');
       const q = query(payoutsRef, where('userId', '==', userId), orderBy('timestamp', 'desc'));
@@ -352,7 +344,6 @@ export const syncManager = {
       unsubscribeFunctions.push(unsubscribe);
     }
     
-    // Broadcasts listener
     if (callbacks.onBroadcastsUpdate) {
       const broadcastsRef = collection(db, 'broadcasts');
       const q = query(broadcastsRef, where('targetUserId', 'in', [userId, null]), orderBy('timestamp', 'desc'));
@@ -366,7 +357,6 @@ export const syncManager = {
       unsubscribeFunctions.push(unsubscribe);
     }
     
-    // Return cleanup function
     return () => {
       unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
     };
@@ -375,7 +365,6 @@ export const syncManager = {
 
 // ==================== ADMIN IMPACT CHECKERS ====================
 export const adminImpactChecker = {
-  // ✅ Check if admin actions affected user
   checkAdminImpact: async (userId: string): Promise<{
     statusChanged: boolean;
     balanceUpdated: boolean;
@@ -397,13 +386,12 @@ export const adminImpactChecker = {
       
       const userData = userSnap.data() as User;
       
-      // Check for new broadcasts
       const broadcastsRef = collection(db, 'broadcasts');
       const broadcastsQuery = query(
         broadcastsRef,
         where('targetUserId', 'in', [userId, null]),
         orderBy('timestamp', 'desc'),
-        limit(5)
+        limit(5) // ✅ No longer an error, 'limit' is imported
       );
       
       const broadcastsSnap = await getDocs(broadcastsQuery);
@@ -414,7 +402,7 @@ export const adminImpactChecker = {
       return {
         statusChanged: userData.status === UserStatus.SUSPENDED || userData.status === UserStatus.BANNED,
         balanceUpdated: userData.walletBalance > 0 || userData.pendingBalance > 0,
-        campaignsUpdated: true, // Always true as campaigns are real-time
+        campaignsUpdated: true, 
         hasNewBroadcasts: hasUnreadBroadcasts
       };
     } catch (error) {
