@@ -9,122 +9,87 @@ interface AdminBroadcastsProps {
   currentUser: User;
 }
 
-const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ 
-  broadcasts,
-  showToast, 
-  currentUser
-}) => {
+const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ broadcasts, showToast, currentUser }) => {
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [targetId, setTargetId] = useState<string>('broadcast');
   const [sending, setSending] = useState(false);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
-  const [allUsers, setAllUsers] = useState<User[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(true);
 
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        setLoadingUsers(true);
         const users = await userService.getUsers();
-        setAllUsers(users);
-        const filteredUsers = users.filter(user => 
-          user.id !== currentUser?.id && 
-          user.role !== UserRole.ADMIN && 
-          user.status === UserStatus.ACTIVE
-        );
-        setAvailableUsers(filteredUsers);
-      } catch (error: any) {
-        showToast('Failed to load users', 'error');
-      } finally {
-        setLoadingUsers(false);
+        setAvailableUsers(users.filter(u => u.role !== UserRole.ADMIN && u.status === UserStatus.ACTIVE));
+      } catch (error) {
+        console.error('User fetch failed');
       }
     };
     fetchUsers();
-  }, [currentUser, showToast]);
+  }, []);
 
-  const handleSendBroadcast = async () => {
-    if (!broadcastMsg.trim()) {
-      showToast('Message content is required', 'error');
-      return;
-    }
-
+  const handleSend = async () => {
+    if (!broadcastMsg.trim()) return;
     setSending(true);
     try {
       await broadcastService.createBroadcast({
         content: broadcastMsg.trim(),
         senderId: currentUser.id,
         senderName: currentUser.username || 'Admin',
-        targetUserId: targetId && targetId !== 'broadcast' ? targetId : undefined,
-        timestamp: Date.now(),
-        readBy: []
+        targetUserId: targetId !== 'broadcast' ? targetId : undefined
       });
-
-      showToast(targetId === 'broadcast' ? 'Broadcast sent to all' : 'Message sent', 'success');
+      showToast('Message Dispatched!', 'success');
       setBroadcastMsg('');
-      setTargetId('broadcast');
     } catch (error: any) {
-      showToast(error.message || 'Failed to send', 'error');
+      showToast(error.message, 'error');
     } finally {
       setSending(false);
     }
   };
 
   return (
-    <div className="space-y-6 p-4">
-      <div className="bg-black/50 border border-slate-800 p-6 rounded-xl">
-        <div className="flex items-center gap-3 mb-4">
-          <ICONS.Message className="w-6 h-6 text-cyan-400" />
-          <h3 className="text-xl font-bold text-white">Send Message</h3>
-        </div>
-        
-        <div className="space-y-4">
-          <select
-            value={targetId}
-            onChange={(e) => setTargetId(e.target.value)}
-            className="w-full bg-black/30 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-cyan-500"
-          >
-            <option value="broadcast">🌐 Broadcast to All Users</option>
-            {availableUsers.map(user => (
-              <option key={user.id} value={user.id}>👤 @{user.username}</option>
-            ))}
-          </select>
-          
-          <textarea
-            value={broadcastMsg}
-            onChange={(e) => setBroadcastMsg(e.target.value)}
-            className="w-full bg-black/30 border border-slate-700 rounded-lg p-4 text-white h-32 resize-none focus:border-cyan-500"
-            placeholder="Type your message..."
-          />
-          
-          <button
-            onClick={handleSendBroadcast}
-            disabled={sending || !broadcastMsg.trim()}
-            className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold py-3 rounded-lg hover:opacity-90 disabled:opacity-50 transition-all"
-          >
-            {sending ? 'Sending...' : 'Dispatch Message'}
-          </button>
-        </div>
+    <div className="space-y-6">
+      <div className="bg-white/5 border border-white/10 p-6 rounded-3xl">
+        <h3 className="text-white font-black mb-4 flex items-center gap-2"><ICONS.Megaphone className="w-5 h-5 text-cyan-400"/> NEW MESSAGE</h3>
+        <select 
+          value={targetId} 
+          onChange={(e) => setTargetId(e.target.value)}
+          className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white mb-4 outline-none focus:border-cyan-500"
+        >
+          <option value="broadcast">🌐 ALL USERS (BROADCAST)</option>
+          {availableUsers.map(u => <option key={u.id} value={u.id}>👤 @{u.username}</option>)}
+        </select>
+        <textarea 
+          value={broadcastMsg} 
+          onChange={(e) => setBroadcastMsg(e.target.value)}
+          className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white h-32 mb-4 outline-none focus:border-cyan-500"
+          placeholder="Enter message content..."
+        />
+        <button 
+          onClick={handleSend} 
+          disabled={sending}
+          className="w-full bg-cyan-500 text-black font-black py-4 rounded-xl hover:bg-cyan-400 disabled:opacity-50"
+        >
+          {sending ? 'SENDING...' : 'SEND MESSAGE'}
+        </button>
       </div>
 
-      <div className="space-y-3">
-        <h3 className="text-lg font-bold text-white px-2">History ({broadcasts.length})</h3>
-        <div className="max-h-[400px] overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-          {broadcasts.length === 0 ? (
-            <p className="text-slate-500 text-center py-10 text-sm">No messages sent yet.</p>
-          ) : (
-            [...broadcasts].reverse().map(b => (
-              <div key={b.id} className="bg-white/5 border border-white/10 p-4 rounded-lg">
-                <div className="flex justify-between text-[10px] mb-2">
-                  <span className={b.targetUserId ? "text-green-400 font-bold" : "text-cyan-400 font-bold uppercase"}>
-                    {b.targetUserId ? 'Direct Message' : 'Global Broadcast'}
-                  </span>
-                  <span className="text-slate-500">{new Date(b.timestamp).toLocaleString()}</span>
-                </div>
-                <p className="text-slate-200 text-sm whitespace-pre-line">{b.content}</p>
+      <div className="space-y-4">
+        <h3 className="text-slate-500 font-black text-xs tracking-widest uppercase">Message History</h3>
+        {broadcasts.length === 0 ? (
+          <div className="text-center py-10 text-slate-600">No history found.</div>
+        ) : (
+          broadcasts.map(b => (
+            <div key={b.id} className="bg-white/5 border border-white/10 p-4 rounded-2xl">
+              <div className="flex justify-between items-center mb-2">
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded ${b.targetUserId ? 'bg-green-500/20 text-green-400' : 'bg-cyan-500/20 text-cyan-400'}`}>
+                  {b.targetUserId ? 'DIRECT' : 'GLOBAL'}
+                </span>
+                <span className="text-[10px] text-slate-500">{new Date(b.timestamp).toLocaleString()}</span>
               </div>
-            ))
-          )}
-        </div>
+              <p className="text-sm text-slate-300">{b.content}</p>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
