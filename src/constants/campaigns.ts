@@ -1,3 +1,4 @@
+// src/constants/campaigns.ts
 import { Campaign } from '../types';
 
 export const SAMPLE_CAMPAIGNS: Campaign[] = [
@@ -43,7 +44,8 @@ export const SAMPLE_CAMPAIGNS: Campaign[] = [
     goalLikes: 1500,
     basicPay: 100,
     viralPay: 1000,
-    active: true
+    active: true,
+    bioLink: '' // Fixed: Added missing property
   }
 ];
 
@@ -59,5 +61,6 @@ export const DEFAULT_CAMPAIGN: Campaign = {
   goalLikes: 0,
   basicPay: 0,
   viralPay: 0,
-  active: true
+  active: true,
+  bioLink: '' // Fixed: Added missing property
 };
