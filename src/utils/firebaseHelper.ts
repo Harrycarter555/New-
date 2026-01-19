@@ -1,7 +1,7 @@
 import { 
   collection, query, where, onSnapshot,
-  getDocs, addDoc, updateDoc, deleteDoc, doc,
-  serverTimestamp, increment, orderBy, writeBatch
+  getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc,
+  serverTimestamp, increment, orderBy, writeBatch, arrayUnion
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { 
@@ -98,7 +98,8 @@ export const userAuthHelper = {
       await updateDoc(userRef, {
         lastLoginAt: Date.now(),
         failedAttempts: 0,
-        lockoutUntil: null
+        lockoutUntil: null,
+        updatedAt: serverTimestamp()
       });
       
       return { canLogin: true, user: userData };
@@ -129,13 +130,14 @@ export const userSubmissionHelper = {
     try {
       const submissionRef = await addDoc(collection(db, 'submissions'), {
         ...submissionData,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       });
       
       // Update user's pending balance
       const userRef = doc(db, 'users', submissionData.userId);
       await updateDoc(userRef, {
-        pendingBalance: increment(submissionData.rewardAmount),
+        pendingBalance: increment(submissionData.rewardAmount || 0),
         updatedAt: serverTimestamp()
       });
       
@@ -160,6 +162,19 @@ export const userSubmissionHelper = {
       id: doc.id,
       ...doc.data()
     } as Submission));
+  },
+
+  // ✅ Get user pending submissions count
+  getUserPendingSubmissions: async (userId: string): Promise<number> => {
+    const submissionsRef = collection(db, 'submissions');
+    const q = query(
+      submissionsRef, 
+      where('userId', '==', userId),
+      where('status', 'in', [SubmissionStatus.PENDING, SubmissionStatus.VIRAL_CLAIM])
+    );
+    
+    const snapshot = await getDocs(q);
+    return snapshot.size;
   }
 };
 
@@ -171,7 +186,9 @@ export const userWalletHelper = {
       const payoutRef = await addDoc(collection(db, 'payouts'), {
         ...payoutData,
         timestamp: serverTimestamp(),
-        requestedAt: Date.now()
+        requestedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       });
       
       return payoutRef.id;
@@ -188,6 +205,22 @@ export const userWalletHelper = {
       payoutsRef, 
       where('userId', '==', userId),
       orderBy('timestamp', 'desc')
+    );
+    
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as PayoutRequest));
+  },
+
+  // ✅ Get user pending payouts
+  getUserPendingPayouts: async (userId: string): Promise<PayoutRequest[]> => {
+    const payoutsRef = collection(db, 'payouts');
+    const q = query(
+      payoutsRef, 
+      where('userId', '==', userId),
+      where('status', '==', PayoutStatus.PENDING)
     );
     
     const snapshot = await getDocs(q);
@@ -223,6 +256,43 @@ export const broadcastHelper = {
       readBy: arrayUnion(userId),
       updatedAt: serverTimestamp()
     });
+  },
+
+  // ✅ Get unread broadcasts count
+  getUnreadBroadcastsCount: async (userId: string): Promise<number> => {
+    try {
+      // First get user's read broadcast IDs
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      
+      if (!userSnap.exists()) return 0;
+      
+      const userData = userSnap.data() as User;
+      const readIds = userData.readBroadcastIds || [];
+      
+      // Get all broadcasts targeted to this user
+      const broadcastsRef = collection(db, 'broadcasts');
+      const q = query(
+        broadcastsRef,
+        where('targetUserId', 'in', [userId, null])
+      );
+      
+      const snapshot = await getDocs(q);
+      const totalBroadcasts = snapshot.size;
+      
+      // Count how many are not in readIds
+      let unreadCount = 0;
+      snapshot.forEach(doc => {
+        if (!readIds.includes(doc.id)) {
+          unreadCount++;
+        }
+      });
+      
+      return unreadCount;
+    } catch (error) {
+      console.error('Error getting unread broadcasts count:', error);
+      return 0;
+    }
   }
 };
 
@@ -268,9 +338,93 @@ export const syncManager = {
       unsubscribeFunctions.push(unsubscribe);
     }
     
+    // Payouts listener
+    if (callbacks.onPayoutsUpdate) {
+      const payoutsRef = collection(db, 'payouts');
+      const q = query(payoutsRef, where('userId', '==', userId), orderBy('timestamp', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const payouts = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as PayoutRequest));
+        callbacks.onPayoutsUpdate?.(payouts);
+      });
+      unsubscribeFunctions.push(unsubscribe);
+    }
+    
+    // Broadcasts listener
+    if (callbacks.onBroadcastsUpdate) {
+      const broadcastsRef = collection(db, 'broadcasts');
+      const q = query(broadcastsRef, where('targetUserId', 'in', [userId, null]), orderBy('timestamp', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const broadcasts = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        callbacks.onBroadcastsUpdate?.(broadcasts);
+      });
+      unsubscribeFunctions.push(unsubscribe);
+    }
+    
     // Return cleanup function
     return () => {
       unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
     };
+  }
+};
+
+// ==================== ADMIN IMPACT CHECKERS ====================
+export const adminImpactChecker = {
+  // ✅ Check if admin actions affected user
+  checkAdminImpact: async (userId: string): Promise<{
+    statusChanged: boolean;
+    balanceUpdated: boolean;
+    campaignsUpdated: boolean;
+    hasNewBroadcasts: boolean;
+  }> => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      
+      if (!userSnap.exists()) {
+        return {
+          statusChanged: false,
+          balanceUpdated: false,
+          campaignsUpdated: false,
+          hasNewBroadcasts: false
+        };
+      }
+      
+      const userData = userSnap.data() as User;
+      
+      // Check for new broadcasts
+      const broadcastsRef = collection(db, 'broadcasts');
+      const broadcastsQuery = query(
+        broadcastsRef,
+        where('targetUserId', 'in', [userId, null]),
+        orderBy('timestamp', 'desc'),
+        limit(5)
+      );
+      
+      const broadcastsSnap = await getDocs(broadcastsQuery);
+      const latestBroadcasts = broadcastsSnap.docs.map(doc => doc.id);
+      const readIds = userData.readBroadcastIds || [];
+      const hasUnreadBroadcasts = latestBroadcasts.some(id => !readIds.includes(id));
+      
+      return {
+        statusChanged: userData.status === UserStatus.SUSPENDED || userData.status === UserStatus.BANNED,
+        balanceUpdated: userData.walletBalance > 0 || userData.pendingBalance > 0,
+        campaignsUpdated: true, // Always true as campaigns are real-time
+        hasNewBroadcasts: hasUnreadBroadcasts
+      };
+    } catch (error) {
+      console.error('Error checking admin impact:', error);
+      return {
+        statusChanged: false,
+        balanceUpdated: false,
+        campaignsUpdated: false,
+        hasNewBroadcasts: false
+      };
+    }
   }
 };
