@@ -10,6 +10,7 @@ import {
 import { loadAppState } from './utils/firebaseState';
 import { INITIAL_DATA } from './constants.tsx';
 import { auth, db } from './firebase';
+import { campaignHelper, userAuthHelper, broadcastHelper, syncManager } from '../utils/firebaseHelper';
 
 import Header from './components/Header';
 import AuthView from './components/AuthView';
