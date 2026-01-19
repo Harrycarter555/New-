@@ -7,17 +7,10 @@ import AdminPayouts from './AdminPayouts';
 import AdminReports from './AdminReports';
 import AdminBroadcasts from './AdminBroadcasts';
 import { userService, campaignService, payoutService, submissionService, reportService, broadcastService, cashflowService } from './firebaseService';
-import { User, UserRole } from '../../utils/types';
-import { ICONS } from '../../utils/constants';
+import { User, UserRole, AppState, AdminPanelProps, AdminTab } from '../../types'; // Fixed path and added AppState
+import { ICONS } from '../../constants'; // Fixed path
 
-type AdminTab = 'dashboard' | 'members' | 'campaigns' | 'cashflow' | 'payouts' | 'reports' | 'broadcasts';
-
-interface AdminPanelProps {
-  currentUser: User;
-  showToast: (message: string, type: 'success' | 'error') => void;
-}
-
-const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appState, setAppState }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [payoutSubTab, setPayoutSubTab] = useState<'payouts' | 'verifications'>('payouts');
   const [loading, setLoading] = useState(true);
@@ -126,7 +119,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
   return (
     <div className="space-y-10 pb-40 animate-slide">
       <div>
-        <h2 className="text-4xl font-black italic px-2 text-white uppercase leading-none italic">
+        <h2 className="text-4xl font-black italic px-2 text-white uppercase leading-none">
           ADMIN<span className="text-cyan-400">COMMAND</span>
         </h2>
         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">
