@@ -6,7 +6,7 @@ import { doc, getDoc, collection, query, where, orderBy, onSnapshot } from 'fire
 import { 
   AppState, User, Campaign, UserRole, UserStatus 
 } from './types.ts';
-
+import { limit } from 'firebase/firestore';
 import { loadAppState } from './utils/firebaseState';
 import { INITIAL_DATA } from './constants.tsx';
 import { auth, db } from './firebase';
