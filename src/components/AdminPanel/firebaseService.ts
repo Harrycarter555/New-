@@ -1,8 +1,7 @@
 import { 
   collection, getDocs, updateDoc, doc, query, orderBy, 
   addDoc, deleteDoc, onSnapshot, serverTimestamp, where,
-  getDoc, setDoc, increment, arrayUnion, arrayRemove,
-  writeBatch 
+  getDoc, setDoc, increment, writeBatch 
 } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { 
@@ -11,7 +10,40 @@ import {
   SubmissionStatus, PayoutStatus
 } from '../../utils/types';
 
-// ========== 1. USER MANAGEMENT ==========
+// ========== 1. DASHBOARD & STATS ==========
+export const statsService = {
+  getDashboardStats: async () => {
+    try {
+      const [uSnap, cSnap, pSnap, sSnap, rSnap] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'campaigns')),
+        getDocs(collection(db, 'payouts')),
+        getDocs(collection(db, 'submissions')),
+        getDocs(collection(db, 'reports'))
+      ]);
+
+      const users = uSnap.docs.map(d => d.data() as User);
+      const nonAdmins = users.filter(u => u.role !== UserRole.ADMIN);
+      const payouts = pSnap.docs.map(d => d.data() as PayoutRequest);
+      const submissions = sSnap.docs.map(d => d.data() as Submission);
+
+      return {
+        totalUsers: nonAdmins.length,
+        activeUsers: nonAdmins.filter(u => u.status === UserStatus.ACTIVE).length,
+        totalBalance: nonAdmins.reduce((s, u) => s + (u.walletBalance || 0), 0),
+        pendingPayouts: payouts.filter(p => p.status === PayoutStatus.PENDING).length,
+        activeCampaigns: cSnap.docs.filter(d => d.data().active).length,
+        pendingSubmissions: submissions.filter(s => s.status === SubmissionStatus.PENDING).length,
+        openReports: rSnap.docs.filter(d => d.data().status === 'open').length
+      };
+    } catch (error) {
+      console.error("Stats Error:", error);
+      throw error;
+    }
+  }
+};
+
+// ========== 2. USER MANAGEMENT ==========
 export const userService = {
   getUsers: async (): Promise<User[]> => {
     const snap = await getDocs(collection(db, 'users'));
@@ -27,15 +59,12 @@ export const userService = {
   }
 };
 
-// ========== 2. CAMPAIGN MANAGEMENT ==========
+// ========== 3. CAMPAIGN MANAGEMENT ==========
 export const campaignService = {
   getCampaigns: async (): Promise<Campaign[]> => {
     const q = query(collection(db, 'campaigns'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Campaign));
-  },
-  createCampaign: async (data: any, creatorId: string) => {
-    return addDoc(collection(db, 'campaigns'), { ...data, createdBy: creatorId, createdAt: Date.now() });
   },
   updateCampaign: async (id: string, updates: Partial<Campaign>) => {
     await updateDoc(doc(db, 'campaigns', id), { ...updates, updatedAt: serverTimestamp() });
@@ -51,63 +80,7 @@ export const campaignService = {
   }
 };
 
-// ========== 3. SUBMISSION MANAGEMENT ==========
-export const submissionService = {
-  approveSubmission: async (submissionId: string, adminId: string) => {
-    const subRef = doc(db, 'submissions', submissionId);
-    const subSnap = await getDoc(subRef);
-    if (!subSnap.exists()) return;
-    const { userId, rewardAmount } = subSnap.data();
-    const batch = writeBatch(db);
-    batch.update(subRef, { status: SubmissionStatus.APPROVED, approvedBy: adminId, approvedAt: serverTimestamp() });
-    batch.update(doc(db, 'users', userId), { 
-      walletBalance: increment(rewardAmount), 
-      pendingBalance: increment(-rewardAmount),
-      totalEarnings: increment(rewardAmount)
-    });
-    await batch.commit();
-  },
-  rejectSubmission: async (submissionId: string, adminId: string) => {
-    const subRef = doc(db, 'submissions', submissionId);
-    const subSnap = await getDoc(subRef);
-    if (!subSnap.exists()) return;
-    const { userId, rewardAmount } = subSnap.data();
-    const batch = writeBatch(db);
-    batch.update(subRef, { status: SubmissionStatus.REJECTED, rejectedBy: adminId, rejectedAt: serverTimestamp() });
-    batch.update(doc(db, 'users', userId), { pendingBalance: increment(-rewardAmount) });
-    await batch.commit();
-  },
-  onSubmissionsUpdate: (callback: (data: Submission[]) => void) => {
-    return onSnapshot(query(collection(db, 'submissions'), orderBy('timestamp', 'desc')), (snap) => {
-      callback(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Submission)));
-    });
-  }
-};
-
-// ========== 4. PAYOUT MANAGEMENT ==========
-export const payoutService = {
-  approvePayout: async (payoutId: string, adminId: string) => {
-    const payoutRef = doc(db, 'payouts', payoutId);
-    const payoutSnap = await getDoc(payoutRef);
-    if (!payoutSnap.exists()) return;
-    const { userId, amount } = payoutSnap.data();
-    const batch = writeBatch(db);
-    batch.update(payoutRef, { status: PayoutStatus.APPROVED, processedBy: adminId, processedAt: serverTimestamp() });
-    batch.update(doc(db, 'users', userId), { walletBalance: increment(-amount) });
-    batch.update(doc(db, 'cashflow', 'daily-cashflow'), { todaySpent: increment(amount) });
-    await batch.commit();
-  },
-  rejectPayout: async (payoutId: string, adminId: string) => {
-    await updateDoc(doc(db, 'payouts', payoutId), { status: PayoutStatus.REJECTED, processedBy: adminId, processedAt: serverTimestamp() });
-  },
-  onPayoutsUpdate: (callback: (data: PayoutRequest[]) => void) => {
-    return onSnapshot(query(collection(db, 'payouts'), orderBy('timestamp', 'desc')), (snap) => {
-      callback(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PayoutRequest)));
-    });
-  }
-};
-
-// ========== 5. CASHFLOW MANAGEMENT ==========
+// ========== 4. CASHFLOW MANAGEMENT ==========
 export const cashflowService = {
   getCashflow: async () => {
     const snap = await getDoc(doc(db, 'cashflow', 'daily-cashflow'));
@@ -122,6 +95,29 @@ export const cashflowService = {
   onCashflowUpdate: (callback: (data: any) => void) => {
     return onSnapshot(doc(db, 'cashflow', 'daily-cashflow'), (snap) => {
       if (snap.exists()) callback(snap.data());
+    });
+  }
+};
+
+// ========== 5. PAYOUTS & SUBMISSIONS ==========
+export const payoutService = {
+  rejectPayout: async (payoutId: string, adminId: string) => {
+    await updateDoc(doc(db, 'payouts', payoutId), { status: PayoutStatus.REJECTED, processedBy: adminId, processedAt: serverTimestamp() });
+  },
+  onPayoutsUpdate: (callback: (data: PayoutRequest[]) => void) => {
+    return onSnapshot(query(collection(db, 'payouts'), orderBy('timestamp', 'desc')), (snap) => {
+      callback(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PayoutRequest)));
+    });
+  }
+};
+
+export const submissionService = {
+  rejectSubmission: async (submissionId: string, adminId: string) => {
+    await updateDoc(doc(db, 'submissions', submissionId), { status: SubmissionStatus.REJECTED, rejectedBy: adminId, rejectedAt: serverTimestamp() });
+  },
+  onSubmissionsUpdate: (callback: (data: Submission[]) => void) => {
+    return onSnapshot(query(collection(db, 'submissions'), orderBy('timestamp', 'desc')), (snap) => {
+      callback(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Submission)));
     });
   }
 };
