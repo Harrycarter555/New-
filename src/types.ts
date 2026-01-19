@@ -1,10 +1,7 @@
 // src/types.ts
 // UPDATED & FIXED VERSION (January 19, 2026)
-// Fixes applied:
-// - description added to Campaign
-// - createdAt added to Broadcast
-// - appState & setAppState added to AdminPanelProps
-// - AppView type + proper Dispatch<SetStateAction<AppView>> for setCurrentView props
+
+import React from 'react';
 
 // ========== ENUMS ==========
 export enum UserRole { 
@@ -75,7 +72,8 @@ export interface Campaign {
   active: boolean;
   bioLink: string;
   createdAt?: number;
-  description?: string;           // ← ADDED to fix constants.tsx error
+  description?: string;
+  requirements?: string[];         // ← ADDED: To fix constants.tsx error
 }
 
 export interface Submission {
@@ -119,7 +117,8 @@ export interface Broadcast {
   readBy?: string[];
   title?: string;
   message?: string;
-  createdAt?: number;             // ← ADDED to fix constants.tsx error
+  createdAt?: number;
+  createdBy?: string;             // ← ADDED: To fix constants.tsx error
 }
 
 export interface UserReport {
@@ -183,9 +182,9 @@ export type AppView = "admin" | "auth" | "verify" | "campaigns" | "recovery" | "
 // Props Types
 export interface AdminPanelProps {
   currentUser: User;
-  showToast: (message: string, type: 'success' | 'error') => void;
-  appState?: AppState;                                    // ← ADDED
-  setAppState?: React.Dispatch<React.SetStateAction<AppState>>;  // ← ADDED
+  showToast: (message: string, type?: 'success' | 'error') => void;
+  appState: AppState;                                    // ← MADE REQUIRED to match App.tsx logic
+  setAppState: React.Dispatch<React.SetStateAction<AppState>>;  // ← MADE REQUIRED
 }
 
 export interface AdminDashboardProps {
@@ -230,42 +229,14 @@ export interface AdminBroadcastsProps {
 
 // Auth & Recovery Props (type-safe setCurrentView)
 export interface AccountRecoveryProps {
-  setCurrentView: React.Dispatch<React.SetStateAction<AppView>>;
+  setCurrentView: (view: AppView) => void;
   showToast: (message: string, type: 'success' | 'error') => void;
 }
 
 export interface AuthViewProps {
   setCurrentUser: (user: User | null) => void;
-  setCurrentView: React.Dispatch<React.SetStateAction<AppView>>;
+  setCurrentView: (view: AppView) => void;
   showToast: (message: string, type: 'success' | 'error') => void;
-}
-
-// Form Data Types
-export interface NewCampaignData {
-  title: string;
-  videoUrl: string;
-  thumbnailUrl: string;
-  caption: string;
-  hashtags: string;
-  audioName: string;
-  goalViews: number;
-  goalLikes: number;
-  basicPay: number;
-  viralPay: number;
-  bioLink: string;
-  description?: string;
-}
-
-export interface BroadcastData {
-  content: string;
-  targetUserId?: string;
-  title?: string;
-  message?: string;
-}
-
-export interface BalanceEditData {
-  amount: string;
-  type: 'add' | 'deduct';
 }
 
 // Statistics Types
@@ -285,41 +256,4 @@ export interface DashboardStats {
   pendingCashflow: number;
   dailyLimit: number;
   todaySpent: number;
-}
-
-// Real-time Update Types
-export interface RealTimeUpdate {
-  type: 'users' | 'campaigns' | 'payouts' | 'submissions' | 'reports' | 'broadcasts' | 'cashflow';
-  data: any;
-  timestamp: number;
-}
-
-// Admin Action Types
-export type AdminAction = 
-  | 'user_status_update'
-  | 'user_balance_update'
-  | 'campaign_create'
-  | 'campaign_update'
-  | 'campaign_delete'
-  | 'payout_approve'
-  | 'payout_reject'
-  | 'submission_approve'
-  | 'submission_reject'
-  | 'report_resolve'
-  | 'report_delete'
-  | 'broadcast_send'
-  | 'cashflow_update';
-
-// Admin Log Entry
-export interface AdminLog {
-  id: string;
-  adminId: string;
-  adminUsername: string;
-  action: AdminAction;
-  targetId?: string;
-  targetUsername?: string;
-  details: string;
-  timestamp: number;
-  ipAddress?: string;
-  userAgent?: string;
 }
