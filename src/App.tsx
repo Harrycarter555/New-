@@ -1,3 +1,4 @@
+//src/App.tsx
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { onAuthStateChanged, signOut } from 'firebase/auth';
