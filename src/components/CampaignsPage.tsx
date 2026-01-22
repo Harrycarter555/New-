@@ -1,3 +1,4 @@
+//src/components/CampaignsPage.tsx
 import React from 'react';
 import { Campaign } from '../types';
 import CampaignList from './CampaignList';
