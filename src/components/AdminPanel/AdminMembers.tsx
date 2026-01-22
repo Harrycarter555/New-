@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { User, UserRole, UserStatus } from '../../utils/types';
+import { User, UserRole, UserStatus } from '../../types';
 import { ICONS } from '../../utils/constants';
 import { userService } from './firebaseService';
 import { 
