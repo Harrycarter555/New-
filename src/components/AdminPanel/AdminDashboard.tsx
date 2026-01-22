@@ -213,7 +213,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ showToast, data, onRefr
             {isResetting ? 'Resetting...' : 'Reset Daily Spent'}
           </button>
           <button
-            onClick={() => showToast('Feature coming soon', 'info')}
+            onClick={() => showToast('Feature coming soon', 'success')}
             className="flex-1 py-3 bg-cyan-500/10 text-cyan-400 rounded-xl font-bold hover:bg-cyan-500/20"
           >
             Send Network Alert
