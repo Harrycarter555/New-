@@ -263,7 +263,7 @@ export const SUCCESS_MESSAGES = {
   WITHDRAWAL_SUCCESS: 'Withdrawal request submitted!',
 };
 
-🔴 REQUIRED BY App.tsx (DO NOT REMOVE)
+// REQUIRED BY App.tsx (DO NOT REMOVE)
 ===================================================== */
 export const INITIAL_DATA: AppState = {
   user: null,
