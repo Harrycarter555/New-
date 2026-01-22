@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, UserRole, AdminTab, Broadcast } from '../../types';
 import { ICONS } from '../../constants';
-import { adminService, checkFirebaseConnection, cashflowService } from './firebaseService';
+import { adminService, checkFirebaseConnection, cashflowService, broadcastService } from './firebaseService';
 
 // Import Admin Components
 import AdminDashboard from './AdminDashboard';
@@ -12,6 +12,10 @@ import AdminPayouts from './AdminPayouts';
 import AdminReports from './AdminReports';
 import AdminBroadcasts from './AdminBroadcasts';
 import AdminSecurityKeys from './AdminSecurityKeys';
+
+// Firebase imports for real-time listeners
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../../firebase';
 
 interface AdminPanelProps {
   currentUser: User;
@@ -202,8 +206,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
             { key: 'cashflow', label: 'Cashflow', icon: ICONS.Dollar },
             { key: 'payouts', label: 'Payouts', icon: ICONS.Wallet },
             { key: 'reports', label: 'Reports', icon: ICONS.AlertCircle },
-            { key: 'broadcasts', label: 'Broadcasts', icon: ICONS.Bell },
-            { key: 'security', label: 'Security', icon: ICONS.Key }
+            { key: 'broadcasts', label: 'Broadcasts', icon: ICONS.Bell }
           ] as const).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -257,11 +260,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
               <AdminMembers 
                 users={data.users} 
                 showToast={showToast}
-                onUpdateUser={(userId, status) => {
-                  adminService.updateUserStatus(userId, status)
-                    .then(() => showToast('User status updated', 'success'))
-                    .catch(err => showToast(err.message, 'error'));
-                }}
               />
             )}
             
@@ -270,7 +268,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
                 campaigns={data.campaigns} 
                 showToast={showToast}
                 currentUser={currentUser}
-                onUpdateCampaign={adminService.updateCampaign}
               />
             )}
             
@@ -278,8 +275,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
               <AdminCashflow 
                 cashflow={data.cashflow} 
                 showToast={showToast}
-                onUpdateLimit={cashflowService.updateDailyLimit}
-                onResetSpent={cashflowService.resetTodaySpent}
               />
             )}
             
@@ -290,8 +285,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
                 showToast={showToast}
                 payoutSubTab={payoutSubTab}
                 setPayoutSubTab={setPayoutSubTab}
-                onApprovePayout={adminService.approvePayout}
-                onApproveSubmission={adminService.approveSubmission}
               />
             )}
             
@@ -307,14 +300,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
                 broadcasts={data.broadcasts} 
                 showToast={showToast}
                 currentUser={currentUser}
-                onSendBroadcast={broadcastService.sendBroadcast}
-              />
-            )}
-            
-            {activeTab === 'security' && (
-              <AdminSecurityKeys 
-                showToast={showToast}
-                users={data.users}
               />
             )}
           </>
