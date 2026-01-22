@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, UserRole, AdminTab, Broadcast } from '../../types';
 import { ICONS } from '../../constants';
-import { adminService, checkFirebaseConnection, cashflowService } from '../../services/firebaseService';
+import { adminService, checkFirebaseConnection, cashflowService } from './firebaseService';
 
 // Import Admin Components
 import AdminDashboard from './AdminDashboard';
