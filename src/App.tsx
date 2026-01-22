@@ -1,15 +1,13 @@
-import { useState, useEffect, useCallback, useRef, Dispatch, SetStateAction } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, orderBy, onSnapshot, limit, DocumentData } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
 
 import { 
   AppState, User, Campaign, UserRole, UserStatus 
 } from './types.ts';
-import { loadAppState } from './utils/firebaseState';
-import { INITIAL_DATA } from './constants.tsx';
+// ❌ loadAppState import को हटा दें
 import { auth, db } from './firebase';
-import { campaignHelper, userAuthHelper, broadcastHelper, syncManager } from './utils/firebaseHelper';
 
 import Header from './components/Header';
 import AuthView from './components/AuthView';
@@ -30,7 +28,24 @@ const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as stri
 type ViewType = 'auth' | 'campaigns' | 'verify' | 'wallet' | 'admin' | 'recovery';
 
 function App() {
-  const [appState, setAppState] = useState<AppState>(INITIAL_DATA);
+  // ❌ INITIAL_DATA नहीं use करें, empty state use करें
+  const [appState, setAppState] = useState<AppState>({
+    users: [],
+    campaigns: [],
+    submissions: [],
+    payoutRequests: [],
+    broadcasts: [],
+    reports: [],
+    cashflow: { 
+      dailyLimit: 0, 
+      todaySpent: 0, 
+      startDate: '', 
+      endDate: '' 
+    },
+    logs: [],
+    config: { minWithdrawal: 0 }
+  });
+  
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<ViewType>('auth'); 
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
@@ -204,20 +219,8 @@ function App() {
   // ==================== AUTH & INITIALIZATION ====================
 
   useEffect(() => {
-    const initApp = async () => {
-      try {
-        const loadedState = await loadAppState();
-        if (loadedState) {
-          setAppState(loadedState);
-        }
-      } catch (error) {
-        console.error('App initialization error:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initApp();
+    // ❌ loadAppState नहीं call करें, सीधे loading false कर दें
+    setLoading(false);
   }, []);
 
   useEffect(() => {
