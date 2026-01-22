@@ -20,7 +20,7 @@ import ProfileOverlay from './components/overlays/ProfileOverlay';
 import AccountRecovery from './components/AccountRecovery';
 
 import { ICONS } from './constants.tsx';
-import { checkFirebaseConnection, adminService } from './services/firebaseService';
+import { checkFirebaseConnection, adminService } from ../Component/AdminPanel/firebaseService';
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as string || '');
