@@ -40,8 +40,8 @@ export interface User {
   username: string;
   password?: string;
   email: string;
-  role: UserRole;
-  status: UserStatus;
+  role: string;
+  status: string;
   walletBalance: number;
   pendingBalance: number;
   totalEarnings: number;
@@ -83,7 +83,7 @@ export interface Submission {
   socialUsername: string;
   campaignId: string;
   campaignTitle: string;
-  platform: Platform;
+  platform: string;
   status: SubmissionStatus;
   timestamp: number;
   rewardAmount: number;
@@ -100,7 +100,7 @@ export interface PayoutRequest {
   username: string;
   amount: number;
   method: string;
-  status: PayoutStatus;
+  status: string;
   timestamp: number;
   requestedAt?: number;
   processedAt?: number;
