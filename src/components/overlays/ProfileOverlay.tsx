@@ -1,4 +1,3 @@
-// Updated ProfileOverlay with professional design
 import React, { useState } from 'react';
 import { User, UserStatus } from '../../types';
 import { ICONS } from '../../constants';
