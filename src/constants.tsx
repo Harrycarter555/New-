@@ -262,3 +262,17 @@ export const SUCCESS_MESSAGES = {
   VERIFICATION_SUCCESS: 'Verification submitted!',
   WITHDRAWAL_SUCCESS: 'Withdrawal request submitted!',
 };
+
+🔴 REQUIRED BY App.tsx (DO NOT REMOVE)
+===================================================== */
+export const INITIAL_DATA: AppState = {
+  user: null,
+  campaigns: [],
+  broadcasts: [],
+  wallet: {
+    balance: 0,
+    transactions: [],
+  },
+  notifications: [],
+  loading: true,
+};
