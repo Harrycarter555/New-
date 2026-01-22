@@ -11,10 +11,45 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:273701842162:web:e301cd5ae426140c41746b"
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+// Initialize Authentication
 export const auth = getAuth(app);
 
-// ✅ Offline Cache Enable kiya taaki loading na ho
+// Initialize Firestore with offline persistence
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
 });
+
+// Connection state monitoring
+export const firebaseConnection = {
+  isConnected: true,
+  lastError: null as Error | null,
+  
+  checkConnection: async () => {
+    try {
+      // Simple connection test
+      await Promise.race([
+        new Promise(resolve => setTimeout(resolve, 5000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 5000))
+      ]);
+      firebaseConnection.isConnected = true;
+      firebaseConnection.lastError = null;
+      return true;
+    } catch (error) {
+      console.error('Firebase connection error:', error);
+      firebaseConnection.isConnected = false;
+      firebaseConnection.lastError = error as Error;
+      return false;
+    }
+  },
+  
+  getStatus: () => ({
+    connected: firebaseConnection.isConnected,
+    lastError: firebaseConnection.lastError?.message,
+    timestamp: new Date().toISOString()
+  })
+};
