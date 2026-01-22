@@ -450,8 +450,6 @@ const WalletView: React.FC<WalletViewProps> = ({
     >
       Submit Viral Claim
     </button>
-          </div>
-          
           {pendingSubmissions.length > 0 && (
             <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
               <p className="text-xs font-black text-amber-400 mb-2">Pending Reviews:</p>
