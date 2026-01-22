@@ -1,7 +1,7 @@
 import React from 'react';
 
 // ✅ Updated AppState interface
-interface AppState {
+export interface AppState {
   users: Array<{
     id: string;
     username: string;
@@ -202,7 +202,6 @@ export const ICONS = {
     </svg>
   ),
   
-  // New Icons Added:
   Active: (props: React.SVGProps<SVGSVGElement>) => (
     <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <circle cx="12" cy="12" r="10" />
@@ -305,7 +304,6 @@ export const ICONS = {
     </svg>
   ),
 
-  // ✅ Missing icons added here
   Bell: (props: React.SVGProps<SVGSVGElement>) => (
     <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -317,6 +315,36 @@ export const ICONS = {
     <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  ),
+
+  // ✅ MISSING ICONS ADDED HERE
+  UserX: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="8.5" cy="7" r="4" />
+      <line x1="18" y1="8" x2="23" y2="13" />
+      <line x1="23" y1="8" x2="18" y2="13" />
+    </svg>
+  ),
+  
+  ShieldOff: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M19.69 14a6.9 6.9 0 0 0 .31-2V5l-8-3-3.16 1.18" />
+      <path d="M4.73 4.73L4 5v7c0 6 8 10 8 10a20.29 20.29 0 0 0 5.62-4.38" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  ),
+  
+  WifiOff: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="1" y1="1" x2="23" y2="23" />
+      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+      <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+      <path d="M10.71 5.05A16 16 0 0 1 22.58 9" />
+      <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+      <line x1="12" y1="20" x2="12.01" y2="20" />
     </svg>
   ),
 };
@@ -343,4 +371,59 @@ export const SUCCESS_MESSAGES = {
   WITHDRAWAL_SUCCESS: 'Withdrawal request submitted!',
 };
 
+// ✅ Color Constants
+export const COLORS = {
+  PRIMARY: '#06b6d4', // cyan-500
+  SECONDARY: '#3b82f6', // blue-500
+  SUCCESS: '#10b981', // green-500
+  WARNING: '#f59e0b', // amber-500
+  ERROR: '#ef4444', // red-500
+  INFO: '#8b5cf6', // violet-500
+};
 
+// ✅ Platform Constants
+export const PLATFORMS = {
+  INSTAGRAM: 'Instagram',
+  FACEBOOK: 'Facebook',
+  YOUTUBE: 'YouTube',
+  TIKTOK: 'TikTok',
+} as const;
+
+// ✅ User Roles
+export const USER_ROLES = {
+  ADMIN: 'admin',
+  USER: 'user',
+  MODERATOR: 'moderator',
+} as const;
+
+// ✅ User Status
+export const USER_STATUS = {
+  ACTIVE: 'active',
+  SUSPENDED: 'suspended',
+  BANNED: 'banned',
+  PENDING: 'pending',
+} as const;
+
+// ✅ Campaign Status
+export const CAMPAIGN_STATUS = {
+  ACTIVE: 'active',
+  INACTIVE: 'inactive',
+  COMPLETED: 'completed',
+  ARCHIVED: 'archived',
+} as const;
+
+// ✅ Submission Status
+export const SUBMISSION_STATUS = {
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  VIRAL_CLAIM: 'viral_claim',
+} as const;
+
+// ✅ Payout Status
+export const PAYOUT_STATUS = {
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  PROCESSED: 'processed',
+} as const;
