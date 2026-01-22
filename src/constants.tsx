@@ -1,16 +1,68 @@
 import React from 'react';
 
-// ✅ Add this interface before ICONS
+// ✅ Updated AppState interface
 interface AppState {
-  user: any;
-  campaigns: any[];
-  broadcasts: any[];
-  wallet: {
-    balance: number;
-    transactions: any[];
+  users: Array<{
+    id: string;
+    username: string;
+    password: string;
+    email: string;
+    role: string;
+    status: string;
+    walletBalance: number;
+    pendingBalance: number;
+    totalEarnings: number;
+    joinedAt: number;
+    readBroadcastIds: string[];
+    securityKey: string;
+    savedSocialUsername?: string;
+    payoutDetails?: string;
+    payoutMethod?: string;
+  }>;
+  campaigns: Array<{
+    id: string;
+    title: string;
+    videoUrl: string;
+    thumbnailUrl: string;
+    caption: string;
+    hashtags: string;
+    audioName: string;
+    goalViews: number;
+    goalLikes: number;
+    basicPay: number;
+    viralPay: number;
+    active: boolean;
+    bioLink: string;
+    description: string;
+    requirements: string[];
+    reward: number;
+    duration: number;
+    tags: string[];
+  }>;
+  submissions: any[];
+  payoutRequests: any[];
+  broadcasts: Array<{
+    id: string;
+    content: string;
+    senderId: string;
+    timestamp: number;
+    createdAt: number;
+    title: string;
+    message: string;
+    createdBy: string;
+    status: string;
+  }>;
+  reports: any[];
+  cashflow: {
+    dailyLimit: number;
+    todaySpent: number;
+    startDate: string;
+    endDate: string;
   };
-  notifications: any[];
-  loading: boolean;
+  logs: any[];
+  config: {
+    minWithdrawal: number;
+  };
 }
 
 export const ICONS = {
@@ -292,13 +344,84 @@ export const SUCCESS_MESSAGES = {
 };
 
 export const INITIAL_DATA: AppState = {
-  user: null,
-  campaigns: [],
-  broadcasts: [],
-  wallet: {
-    balance: 0,
-    transactions: [],
+  users: [
+    {
+      id: 'admin-1',
+      username: 'admin',
+      password: '123',
+      email: 'admin@reelearn.pro',
+      role: 'admin',
+      status: 'active',
+      walletBalance: 0,
+      pendingBalance: 0,
+      totalEarnings: 0,
+      joinedAt: Date.now(),
+      readBroadcastIds: [],
+      securityKey: 'ADMIN-MASTER'
+    },
+    // Sample user for testing
+    {
+      id: 'user-1',
+      username: 'pro_creator',
+      password: '123',
+      email: 'creator@gmail.com',
+      role: 'user',
+      status: 'active',
+      walletBalance: 2450.00,
+      pendingBalance: 125.00,
+      totalEarnings: 8900.00,
+      joinedAt: Date.now(),
+      savedSocialUsername: 'instagram.com/@pro_creator',
+      payoutDetails: 'UPI: creator@okaxis',
+      payoutMethod: 'UPI',
+      readBroadcastIds: [],
+      securityKey: 'KEY-CREATOR-99'
+    }
+  ],
+  campaigns: [
+    {
+      id: 'c-1',
+      title: 'Neon Drift Style',
+      videoUrl: 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4',
+      thumbnailUrl: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=600',
+      caption: 'The future of drifting is here. 🏎️💨 #NeonDrift #ReelEarn',
+      hashtags: '#viral #trending #reels #supercars',
+      audioName: 'Phonk Killer - Drift Mode',
+      goalViews: 20000,
+      goalLikes: 2500,
+      basicPay: 50.00,
+      viralPay: 250.00,
+      active: true,
+      bioLink: 'reelearn.vip/mission/c-1',
+      description: 'High-speed neon drifting showcase',
+      requirements: ['Post on Instagram', 'Use hashtags', 'Tag @reelearn'],
+      reward: 50.00,
+      duration: 7,
+      tags: ['drift', 'cars', 'neon']
+    }
+  ],
+  submissions: [],
+  payoutRequests: [],
+  broadcasts: [
+    { 
+      id: 'm-1', 
+      content: 'Welcome to ReelEarn Pro! Check your missions and start earning.', 
+      senderId: 'admin-1', 
+      timestamp: Date.now(),
+      createdAt: Date.now(),
+      title: 'Welcome Message',
+      message: 'Welcome to ReelEarn Pro! Check your missions and start earning.',
+      createdBy: 'admin-1',
+      status: 'active'
+    }
+  ],
+  reports: [],
+  cashflow: { 
+    dailyLimit: 100000, 
+    todaySpent: 0, 
+    startDate: new Date().toISOString().split('T')[0], 
+    endDate: new Date().toISOString().split('T')[0] 
   },
-  notifications: [],
-  loading: true,
+  logs: [],
+  config: { minWithdrawal: 100 }
 };
