@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppState, User, Platform, SubmissionStatus } from '../types';
+import { AppState, User, Platform, SubmissionStatus, Campaign } from '../types';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { collection, addDoc, updateDoc, doc, increment, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -11,6 +11,7 @@ interface VerifyViewProps {
   setAppState: React.Dispatch<React.SetStateAction<AppState>>;
   showToast: (msg: string, type?: 'success' | 'error') => void;
   genAI: GoogleGenerativeAI;
+  userCampaigns: Campaign[]; // ✅ Campaigns passed from App.tsx
 }
 
 const VerifyView: React.FC<VerifyViewProps> = ({
@@ -19,6 +20,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
   setAppState,
   showToast,
   genAI,
+  userCampaigns,
 }) => {
   const [platform, setPlatform] = useState<Platform>(Platform.INSTAGRAM);
   const [handleInput, setHandleInput] = useState(
@@ -29,8 +31,8 @@ const VerifyView: React.FC<VerifyViewProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState('');
 
-  // Filter only active campaigns
-  const activeCampaigns = appState.campaigns.filter(c => c.active);
+  // Use userCampaigns instead of appState.campaigns
+  const activeCampaigns = userCampaigns.filter(c => c.active);
 
   const toggleCampaign = (id: string) => {
     setSelectedVerifyCampaigns(prev =>
@@ -172,27 +174,39 @@ Respond ONLY with "SUCCESS" if valid, or ONE sentence mistake in Hinglish if inv
         </p>
       </div>
 
-      {/* Selection Section */}
+      {/* Campaign Selection with Thumbnails */}
       <div className="space-y-4 px-2">
         <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-2 italic">
-          1. Selection
+          1. Select Missions
         </p>
-        <div className="flex gap-4 overflow-x-auto hide-scrollbar py-2 px-2">
-          {activeCampaigns.map(c => (
+        <div className="grid grid-cols-2 gap-4">
+          {activeCampaigns.map(campaign => (
             <div
-              key={c.id}
-              onClick={() => toggleCampaign(c.id)}
-              className={`flex-shrink-0 w-28 aspect-[9/16] rounded-3xl overflow-hidden relative border-4 transition-all ${
-                selectedVerifyCampaigns.includes(c.id)
-                  ? 'border-cyan-500 scale-105 shadow-[0_0_20px_rgba(0,210,255,0.4)]'
-                  : 'border-transparent opacity-40'
+              key={campaign.id}
+              onClick={() => toggleCampaign(campaign.id)}
+              className={`relative rounded-2xl overflow-hidden border-2 cursor-pointer transition-all ${
+                selectedVerifyCampaigns.includes(campaign.id)
+                  ? 'border-cyan-500 shadow-lg shadow-cyan-500/20 scale-[1.02]'
+                  : 'border-white/10 opacity-80 hover:opacity-100'
               }`}
             >
-              <img src={c.thumbnailUrl} className="w-full h-full object-cover" alt={c.title} />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-2">
-                <p className="text-[7px] font-black text-white italic truncate">
-                  {c.title.toUpperCase()}
-                </p>
+              <img 
+                src={campaign.thumbnailUrl} 
+                alt={campaign.title}
+                className="w-full h-40 object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3">
+                <p className="text-xs font-bold text-white truncate">{campaign.title}</p>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-[10px] text-cyan-400 font-bold">
+                    ₹{campaign.basicPay}
+                  </span>
+                  {selectedVerifyCampaigns.includes(campaign.id) && (
+                    <div className="w-5 h-5 bg-cyan-500 rounded-full flex items-center justify-center">
+                      <ICONS.Check className="w-3 h-3 text-black" />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -232,22 +246,30 @@ Respond ONLY with "SUCCESS" if valid, or ONE sentence mistake in Hinglish if inv
           />
         </div>
 
-        {/* Links */}
+        {/* Links for selected campaigns */}
         {selectedVerifyCampaigns.length > 0 && (
           <div className="space-y-4 animate-slide">
             <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-2 italic">
               3. URL Link Verification
             </p>
             {selectedVerifyCampaigns.map(cid => {
-              const camp = activeCampaigns.find(c => c.id === cid);
+              const campaign = activeCampaigns.find(c => c.id === cid);
               return (
                 <div key={cid} className="space-y-2">
-                  <p className="text-[8px] font-black text-cyan-500 uppercase px-4 italic">
-                    {camp?.title}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <img 
+                      src={campaign?.thumbnailUrl} 
+                      alt={campaign?.title}
+                      className="w-10 h-10 rounded-lg object-cover"
+                    />
+                    <div>
+                      <p className="text-xs font-bold text-white">{campaign?.title}</p>
+                      <p className="text-[10px] text-cyan-400">₹{campaign?.basicPay}</p>
+                    </div>
+                  </div>
                   <input
-                    className="w-full bg-white/5 border border-white/10 rounded-[24px] px-6 py-4 text-sm font-bold text-white outline-none focus:border-cyan-500 shadow-md"
-                    placeholder="Paste Full URL..."
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold text-white outline-none focus:border-cyan-500 shadow-md"
+                    placeholder="Paste Full Reel URL..."
                     value={links[cid] || ''}
                     onChange={e => setLinks({ ...links, [cid]: e.target.value })}
                   />
@@ -259,11 +281,30 @@ Respond ONLY with "SUCCESS" if valid, or ONE sentence mistake in Hinglish if inv
 
         <button
           onClick={handleVerifySubmit}
-          disabled={isAnalyzing}
-          className="w-full py-7 bg-cyan-500 text-black rounded-[40px] font-black uppercase tracking-[0.4em] text-lg shadow-2xl active:scale-95 transition-all disabled:opacity-50"
+          disabled={isAnalyzing || selectedVerifyCampaigns.length === 0}
+          className={`w-full py-7 rounded-[40px] font-black uppercase tracking-[0.4em] text-lg shadow-2xl active:scale-95 transition-all ${
+            selectedVerifyCampaigns.length === 0 
+              ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
+              : 'bg-cyan-500 text-black'
+          }`}
         >
           {isAnalyzing ? 'VERIFYING...' : 'START VERIFICATION'}
         </button>
+
+        {/* Selected campaigns summary */}
+        {selectedVerifyCampaigns.length > 0 && (
+          <div className="p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl">
+            <p className="text-xs font-black text-cyan-400 mb-2">
+              Selected: {selectedVerifyCampaigns.length} mission(s)
+            </p>
+            <p className="text-sm font-bold text-white">
+              Total Payout: ₹{selectedVerifyCampaigns.reduce((sum, cid) => {
+                const campaign = activeCampaigns.find(c => c.id === cid);
+                return sum + (campaign?.basicPay || 0);
+              }, 0)}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
