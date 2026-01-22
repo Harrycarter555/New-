@@ -1,5 +1,8 @@
 import { db } from '../firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { 
+  collection, query, orderBy, limit, where, 
+  onSnapshot, addDoc, serverTimestamp 
+} from 'firebase/firestore';
 
 // Admin can listen to real-time user activities
 export const setupAdminRealtimeListeners = (adminId: string, callbacks: {
