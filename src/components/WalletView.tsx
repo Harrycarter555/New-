@@ -1,3 +1,4 @@
+//src/components/WalletView.tsx
 import React, { useState, useEffect } from 'react';
 import { User, AppState, PayoutStatus, Platform, SubmissionStatus, Campaign } from '../types';
 import { ICONS } from '../constants';
