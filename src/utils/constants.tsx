@@ -154,3 +154,8 @@ export const SUCCESS_MESSAGES = {
   VERIFICATION_SUCCESS: 'Verification submitted!',
   WITHDRAWAL_SUCCESS: 'Withdrawal request submitted!',
 } as const;
+
+/* =====================================================
+   Required by App.tsx
+===================================================== */
+export const INITIAL_DATA = null;
