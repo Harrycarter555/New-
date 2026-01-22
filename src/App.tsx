@@ -462,7 +462,7 @@ function App() {
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="text-center">
           <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <ICONS.UserX className="w-10 h-10 text-red-500" />
+            <ICONS.User className="w-10 h-10 text-red-500" /> {/* ✅ Fixed: Changed UserX to User */}
           </div>
           <h3 className="text-2xl font-bold text-white mb-2">Authentication Error</h3>
           <p className="text-gray-400 mb-6">Please log in again</p>
@@ -554,8 +554,7 @@ function App() {
         
         {currentView === 'admin' && currentUser.role === UserRole.ADMIN && (
           <AdminPanel
-            appState={appState}
-            setAppState={setAppState}
+            // ✅ Fixed: Removed appState and setAppState props
             currentUser={currentUser}
             showToast={showToast}
           />
