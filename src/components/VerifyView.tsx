@@ -1,3 +1,4 @@
+//src/components/VerifyView.tsx
 import React, { useState, useEffect } from 'react';
 import { AppState, User, Platform, SubmissionStatus, Campaign } from '../types';
 import { GoogleGenerativeAI } from "@google/generative-ai";
