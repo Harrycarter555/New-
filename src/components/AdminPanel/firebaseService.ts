@@ -1,10 +1,11 @@
+// ✅ IMPORT FIXES:
 import { 
   collection, getDocs, updateDoc, doc, query, orderBy, 
   addDoc, deleteDoc, onSnapshot, serverTimestamp, where,
   getDoc, setDoc, increment, arrayUnion, arrayRemove,
   writeBatch, limit
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db } from '../../firebase'; // ✅ FIXED PATH
 import { 
   User, UserRole, UserStatus, Campaign, Submission, 
   PayoutRequest, Broadcast, UserReport,
@@ -139,6 +140,25 @@ export const adminService = {
     };
   },
 
+  // ✅ Added these methods:
+  getUsers: async (): Promise<User[]> => {
+    const snapshot = await getDocs(collection(db, 'users'));
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+  },
+
+  updateUserStatus: async (userId: string, status: UserStatus): Promise<boolean> => {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        status,
+        updatedAt: serverTimestamp()
+      });
+      return true;
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      throw error;
+    }
+  },
+
   // Admin actions
   approvePayout: async (payoutId: string, adminId: string) => {
     try {
@@ -221,16 +241,110 @@ export const adminService = {
     }
   },
 
-  updateUserStatus: async (userId: string, status: UserStatus) => {
-    try {
-      await updateDoc(doc(db, 'users', userId), {
-        status,
-        updatedAt: serverTimestamp()
-      });
-      return true;
-    } catch (error) {
-      console.error('Error updating user status:', error);
-      throw error;
+  // For backward compatibility
+  payoutService: {
+    approvePayout: async (payoutId: string, adminId: string) => {
+      return adminService.approvePayout(payoutId, adminId);
+    },
+    rejectPayout: async (payoutId: string, adminId: string) => {
+      try {
+        await updateDoc(doc(db, 'payouts', payoutId), {
+          status: PayoutStatus.REJECTED,
+          processedAt: serverTimestamp(),
+          processedBy: adminId,
+          updatedAt: serverTimestamp()
+        });
+        return true;
+      } catch (error) {
+        console.error('Error rejecting payout:', error);
+        throw error;
+      }
+    }
+  },
+
+  submissionService: {
+    approveSubmission: async (submissionId: string, adminId: string) => {
+      return adminService.approveSubmission(submissionId, adminId);
+    },
+    rejectSubmission: async (submissionId: string, adminId: string) => {
+      try {
+        await updateDoc(doc(db, 'submissions', submissionId), {
+          status: SubmissionStatus.REJECTED,
+          rejectedAt: serverTimestamp(),
+          rejectedBy: adminId,
+          updatedAt: serverTimestamp()
+        });
+        return true;
+      } catch (error) {
+        console.error('Error rejecting submission:', error);
+        throw error;
+      }
+    }
+  },
+
+  reportService: {
+    resolveReport: async (reportId: string, resolverId: string) => {
+      try {
+        await updateDoc(doc(db, 'reports', reportId), {
+          status: 'resolved',
+          resolvedAt: serverTimestamp(),
+          resolvedBy: resolverId,
+          updatedAt: serverTimestamp()
+        });
+        return true;
+      } catch (error) {
+        console.error('Error resolving report:', error);
+        throw error;
+      }
+    },
+    deleteReport: async (reportId: string) => {
+      try {
+        await deleteDoc(doc(db, 'reports', reportId));
+        return true;
+      } catch (error) {
+        console.error('Error deleting report:', error);
+        throw error;
+      }
+    }
+  },
+
+  campaignService: {
+    createCampaign: async (campaignData: Omit<Campaign, 'id' | 'createdAt'>, creatorId: string): Promise<string> => {
+      try {
+        const campaignRef = await addDoc(collection(db, 'campaigns'), {
+          ...campaignData,
+          createdBy: creatorId,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        
+        return campaignRef.id;
+      } catch (error) {
+        console.error('Error creating campaign:', error);
+        throw error;
+      }
+    },
+    updateCampaign: async (campaignId: string, updates: Partial<Campaign>) => {
+      return adminService.updateCampaign(campaignId, updates);
+    },
+    toggleCampaignStatus: async (campaignId: string, currentStatus: boolean): Promise<void> => {
+      try {
+        await updateDoc(doc(db, 'campaigns', campaignId), {
+          active: !currentStatus,
+          updatedAt: serverTimestamp()
+        });
+      } catch (error) {
+        console.error('Error toggling campaign status:', error);
+        throw error;
+      }
+    },
+    deleteCampaign: async (campaignId: string): Promise<void> => {
+      try {
+        await deleteDoc(doc(db, 'campaigns', campaignId));
+      } catch (error) {
+        console.error('Error deleting campaign:', error);
+        throw error;
+      }
     }
   }
 };
@@ -338,6 +452,11 @@ export const userService = {
       console.error('Error requesting payout:', error);
       throw error;
     }
+  },
+
+  // ✅ Added for backward compatibility
+  updateUserStatus: async (userId: string, status: UserStatus) => {
+    return adminService.updateUserStatus(userId, status);
   }
 };
 
@@ -429,6 +548,16 @@ export const broadcastService = {
     }
   },
 
+  createBroadcast: async (
+    content: string,
+    senderId: string,
+    senderName: string,
+    targetUserId?: string
+  ) => {
+    // Alias for sendBroadcast
+    return broadcastService.sendBroadcast(content, senderId, senderName, targetUserId);
+  },
+
   markAsRead: async (broadcastId: string, userId: string) => {
     try {
       const broadcastRef = doc(db, 'broadcasts', broadcastId);
@@ -441,5 +570,16 @@ export const broadcastService = {
       console.error('Error marking broadcast as read:', error);
       throw error;
     }
+  },
+
+  getUsers: async () => {
+    return adminService.getUsers();
   }
 };
+
+// ========== EXPORT ALL SERVICES ==========
+// For backward compatibility
+export const payoutService = adminService.payoutService;
+export const submissionService = adminService.submissionService;
+export const reportService = adminService.reportService;
+export const campaignService = adminService.campaignService;
