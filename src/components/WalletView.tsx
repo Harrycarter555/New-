@@ -404,36 +404,52 @@ const WalletView: React.FC<WalletViewProps> = ({
       )}
 
       {/* Viral Tab */}
-      {walletTab === 'viral' && (
-        <div className="glass-panel p-10 rounded-[56px] space-y-6 shadow-2xl animate-slide">
-          <h3 className="text-xl font-black italic text-white italic uppercase tracking-tighter">
-            Viral Bonus Claim
-          </h3>
-          <div className="space-y-4">
-            <select
-              value={selectedCampaignForViral}
-              onChange={(e) => setSelectedCampaignForViral(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-xs font-bold text-white outline-none"
-            >
-              <option value="" className="bg-black">Select Campaign</option>
-              {appState.campaigns.filter(c => c.active).map((c) => (
-                <option key={c.id} value={c.id} className="bg-black">
-                  {c.title} (₹{c.viralPay} bonus)
-                </option>
-              ))}
-            </select>
-            <input
-              value={viralLink}
-              onChange={(e) => setViralLink(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white outline-none"
-              placeholder="Paste Viral Reel URL (min 20k views)"
-            />
-            <button
-              onClick={handleViralSubmit}
-              className="w-full py-6 bg-cyan-500 text-black rounded-[28px] font-black uppercase text-sm active:scale-95"
-            >
-              Submit Viral Claim
-            </button>
+      
+{walletTab === 'viral' && (
+  <div className="glass-panel p-10 rounded-[56px] space-y-6 shadow-2xl animate-slide">
+    <h3 className="text-xl font-black italic text-white italic uppercase tracking-tighter">
+      Viral Bonus Claim
+    </h3>
+    
+    {/* Campaign Selection Grid */}
+    <div className="grid grid-cols-2 gap-4">
+      {userCampaigns.filter(c => c.active).map(campaign => (
+        <div
+          key={campaign.id}
+          onClick={() => setSelectedCampaignForViral(campaign.id)}
+          className={`relative rounded-2xl overflow-hidden border-2 cursor-pointer ${
+            selectedCampaignForViral === campaign.id 
+              ? 'border-cyan-500 shadow-lg shadow-cyan-500/20' 
+              : 'border-white/10'
+          }`}
+        >
+          <img 
+            src={campaign.thumbnailUrl} 
+            alt={campaign.title}
+            className="w-full h-32 object-cover"
+          />
+          <div className="p-3 bg-black/80">
+            <p className="text-[10px] font-bold text-white truncate">{campaign.title}</p>
+            <p className="text-[8px] text-cyan-400 font-bold">₹{campaign.viralPay} bonus</p>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <input
+      value={viralLink}
+      onChange={(e) => setViralLink(e.target.value)}
+      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white outline-none"
+      placeholder="Paste Viral Reel URL (min 20k views)"
+    />
+    
+    <button
+      onClick={handleViralSubmit}
+      disabled={!selectedCampaignForViral || !viralLink}
+      className="w-full py-6 bg-cyan-500 text-black rounded-[28px] font-black uppercase text-sm active:scale-95 disabled:opacity-50"
+    >
+      Submit Viral Claim
+    </button>
           </div>
           
           {pendingSubmissions.length > 0 && (
