@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, AppState, PayoutStatus, Platform, SubmissionStatus } from '../types';
+import { User, AppState, PayoutStatus, Platform, SubmissionStatus, Campaign } from '../types';
 import { ICONS } from '../constants';
 import { collection, addDoc, updateDoc, doc, increment, serverTimestamp, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -9,6 +9,8 @@ interface WalletViewProps {
   appState: AppState;
   setAppState: React.Dispatch<React.SetStateAction<AppState>>;
   showToast: (msg: string, type?: 'success' | 'error') => void;
+  userCampaigns: Campaign[]; // ✅ Added
+  userBroadcasts: any[]; // ✅ Added
 }
 
 const WalletView: React.FC<WalletViewProps> = ({
@@ -16,6 +18,8 @@ const WalletView: React.FC<WalletViewProps> = ({
   appState,
   setAppState,
   showToast,
+  userCampaigns, // ✅ Added
+  userBroadcasts, // ✅ Added
 }) => {
   const [walletTab, setWalletTab] = useState<'transactions' | 'inbox' | 'payment' | 'viral'>('transactions');
   const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -30,7 +34,6 @@ const WalletView: React.FC<WalletViewProps> = ({
   const [selectedCampaignForViral, setSelectedCampaignForViral] = useState('');
   const [userSubmissions, setUserSubmissions] = useState<any[]>([]);
   const [userPayouts, setUserPayouts] = useState<any[]>([]);
-  const [userBroadcasts, setUserBroadcasts] = useState<any[]>([]);
 
   // ✅ REAL-TIME: Fetch user submissions
   useEffect(() => {
@@ -71,28 +74,6 @@ const WalletView: React.FC<WalletViewProps> = ({
         ...doc.data()
       }));
       setUserPayouts(payouts);
-    });
-
-    return () => unsubscribe();
-  }, [currentUser]);
-
-  // ✅ REAL-TIME: Fetch user broadcasts
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const broadcastsRef = collection(db, 'broadcasts');
-    const q = query(
-      broadcastsRef,
-      where('targetUserId', 'in', [currentUser.id, null]),
-      orderBy('timestamp', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const broadcasts = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setUserBroadcasts(broadcasts);
     });
 
     return () => unsubscribe();
@@ -174,8 +155,9 @@ const WalletView: React.FC<WalletViewProps> = ({
   const handleViralSubmit = async () => {
     if (!viralLink || !selectedCampaignForViral) return showToast('Please fill all fields', 'error');
 
-    const campaign = appState.campaigns.find(c => c.id === selectedCampaignForViral);
-    if (!campaign) return;
+    // ✅ Use userCampaigns instead of appState.campaigns
+    const campaign = userCampaigns.find(c => c.id === selectedCampaignForViral);
+    if (!campaign) return showToast('Campaign not found', 'error');
 
     try {
       // ✅ Save to Firestore
@@ -404,52 +386,53 @@ const WalletView: React.FC<WalletViewProps> = ({
       )}
 
       {/* Viral Tab */}
-      
-{walletTab === 'viral' && (
-  <div className="glass-panel p-10 rounded-[56px] space-y-6 shadow-2xl animate-slide">
-    <h3 className="text-xl font-black italic text-white italic uppercase tracking-tighter">
-      Viral Bonus Claim
-    </h3>
-    
-    {/* Campaign Selection Grid */}
-    <div className="grid grid-cols-2 gap-4">
-      {userCampaigns.filter(c => c.active).map(campaign => (
-        <div
-          key={campaign.id}
-          onClick={() => setSelectedCampaignForViral(campaign.id)}
-          className={`relative rounded-2xl overflow-hidden border-2 cursor-pointer ${
-            selectedCampaignForViral === campaign.id 
-              ? 'border-cyan-500 shadow-lg shadow-cyan-500/20' 
-              : 'border-white/10'
-          }`}
-        >
-          <img 
-            src={campaign.thumbnailUrl} 
-            alt={campaign.title}
-            className="w-full h-32 object-cover"
-          />
-          <div className="p-3 bg-black/80">
-            <p className="text-[10px] font-bold text-white truncate">{campaign.title}</p>
-            <p className="text-[8px] text-cyan-400 font-bold">₹{campaign.viralPay} bonus</p>
+      {walletTab === 'viral' && (
+        <div className="glass-panel p-10 rounded-[56px] space-y-6 shadow-2xl animate-slide">
+          <h3 className="text-xl font-black italic text-white italic uppercase tracking-tighter">
+            Viral Bonus Claim
+          </h3>
+          
+          {/* Campaign Selection Grid */}
+          <div className="grid grid-cols-2 gap-4">
+            {userCampaigns.filter(c => c.active).map(campaign => (
+              <div
+                key={campaign.id}
+                onClick={() => setSelectedCampaignForViral(campaign.id)}
+                className={`relative rounded-2xl overflow-hidden border-2 cursor-pointer ${
+                  selectedCampaignForViral === campaign.id 
+                    ? 'border-cyan-500 shadow-lg shadow-cyan-500/20' 
+                    : 'border-white/10'
+                }`}
+              >
+                <img 
+                  src={campaign.thumbnailUrl} 
+                  alt={campaign.title}
+                  className="w-full h-32 object-cover"
+                />
+                <div className="p-3 bg-black/80">
+                  <p className="text-[10px] font-bold text-white truncate">{campaign.title}</p>
+                  <p className="text-[8px] text-cyan-400 font-bold">₹{campaign.viralPay} bonus</p>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      ))}
-    </div>
 
-    <input
-      value={viralLink}
-      onChange={(e) => setViralLink(e.target.value)}
-      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white outline-none"
-      placeholder="Paste Viral Reel URL (min 20k views)"
-    />
-    
-    <button
-      onClick={handleViralSubmit}
-      disabled={!selectedCampaignForViral || !viralLink}
-      className="w-full py-6 bg-cyan-500 text-black rounded-[28px] font-black uppercase text-sm active:scale-95 disabled:opacity-50"
-    >
-      Submit Viral Claim
-    </button>
+          <input
+            value={viralLink}
+            onChange={(e) => setViralLink(e.target.value)}
+            className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm font-bold text-white outline-none"
+            placeholder="Paste Viral Reel URL (min 20k views)"
+          />
+          
+          <button
+            onClick={handleViralSubmit}
+            disabled={!selectedCampaignForViral || !viralLink}
+            className="w-full py-6 bg-cyan-500 text-black rounded-[28px] font-black uppercase text-sm active:scale-95 disabled:opacity-50"
+          >
+            Submit Viral Claim
+          </button>
+          
+          {/* Pending Submissions */}
           {pendingSubmissions.length > 0 && (
             <div className="mt-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
               <p className="text-xs font-black text-amber-400 mb-2">Pending Reviews:</p>
