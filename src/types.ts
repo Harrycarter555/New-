@@ -1,4 +1,3 @@
-// src/types.ts
 // UPDATED & FIXED VERSION (January 19, 2026)
 
 import React from 'react';
@@ -55,6 +54,11 @@ export interface User {
   payoutMethod?: 'UPI' | 'BANK' | 'USDT' | string;
   payoutDetails?: string;
   createdAt?: number;
+  // ✅ ADDED: For constants.tsx compatibility
+  description?: string;
+  reward?: number;
+  duration?: number;
+  tags?: string[];
 }
 
 export interface Campaign {
@@ -73,7 +77,13 @@ export interface Campaign {
   bioLink: string;
   createdAt?: number;
   description?: string;
-  requirements?: string[];         // ← ADDED: To fix constants.tsx error
+  requirements?: string[];
+  // ✅ ADDED: For constants.tsx compatibility
+  reward?: number;
+  duration?: number;
+  tags?: string[];
+  status?: string; // For reports status
+  createdBy?: string; // For broadcasts
 }
 
 export interface Submission {
@@ -118,7 +128,9 @@ export interface Broadcast {
   title?: string;
   message?: string;
   createdAt?: number;
-  createdBy?: string;             // ← ADDED: To fix constants.tsx error
+  createdBy?: string;
+  // ✅ ADDED: For constants.tsx compatibility
+  status?: string;
 }
 
 export interface UserReport {
@@ -152,6 +164,7 @@ export interface AppConfig {
   minWithdrawal: number;
 }
 
+// ✅ UPDATED AppState to match constants.tsx
 export interface AppState {
   users: User[];
   campaigns: Campaign[];
@@ -183,12 +196,14 @@ export type AppView = "admin" | "auth" | "verify" | "campaigns" | "recovery" | "
 export interface AdminPanelProps {
   currentUser: User;
   showToast: (message: string, type?: 'success' | 'error') => void;
-  appState: AppState;                                    // ← MADE REQUIRED to match App.tsx logic
-  setAppState: React.Dispatch<React.SetStateAction<AppState>>;  // ← MADE REQUIRED
+  appState?: AppState; // ✅ MADE OPTIONAL to fix App.tsx error
+  setAppState?: React.Dispatch<React.SetStateAction<AppState>>; // ✅ MADE OPTIONAL
 }
 
 export interface AdminDashboardProps {
   showToast: (message: string, type: 'success' | 'error') => void;
+  data?: any; // ✅ ADDED for AdminPanel compatibility
+  onRefresh?: () => void; // ✅ ADDED for AdminPanel compatibility
 }
 
 export interface AdminMembersProps {
@@ -203,7 +218,7 @@ export interface AdminCampaignsProps {
 }
 
 export interface AdminCashflowProps {
-  cashflow: { dailyLimit: number; todaySpent: number };
+  cashflow: { dailyLimit: number; todaySpent: number; startDate?: string; endDate?: string };
   showToast: (message: string, type: 'success' | 'error') => void;
 }
 
@@ -256,4 +271,59 @@ export interface DashboardStats {
   pendingCashflow: number;
   dailyLimit: number;
   todaySpent: number;
+}
+
+// ✅ ADDITIONAL TYPES FOR COMPONENTS
+export interface CampaignsPageProps {
+  userCampaigns: Campaign[];
+  userStats: {
+    totalActive: number;
+    totalRewardPool: number;
+    pendingBalance: number;
+    walletBalance: number;
+  };
+  onCampaignSelect: (campaign: Campaign) => void;
+  onNavigateToVerify: () => void;
+  onNavigateToWallet: () => void;
+}
+
+export interface VerifyViewProps {
+  currentUser: User;
+  appState: AppState;
+  setAppState: React.Dispatch<React.SetStateAction<AppState>>;
+  showToast: (msg: string, type?: 'success' | 'error') => void;
+  genAI: any; // GoogleGenerativeAI type
+  userCampaigns: Campaign[];
+}
+
+export interface WalletViewProps {
+  currentUser: User;
+  appState: AppState;
+  setAppState: React.Dispatch<React.SetStateAction<AppState>>;
+  showToast: (msg: string, type?: 'success' | 'error') => void;
+  userCampaigns: Campaign[];
+  userBroadcasts: any[];
+  userSubmissions: any[];
+  userPayouts: any[];
+}
+
+export interface MissionDetailOverlayProps {
+  campaign: Campaign;
+  onClose: () => void;
+  onStartVerify: () => void;
+}
+
+export interface ProfileOverlayProps {
+  isOpen: boolean;
+  user: User | null;
+  onClose: () => void;
+  onLogout: () => void;
+}
+
+export interface HeaderProps {
+  user: User | null;
+  onLogout: () => void;
+  onNotifyClick: () => void;
+  onProfileClick: () => void;
+  unreadCount: number;
 }
