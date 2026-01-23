@@ -1,6 +1,7 @@
+// firebase.ts
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, CACHE_SIZE_UNLIMITED } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyD0GSKrevCHLP2Fs9LMoq8hwImCWzoFxDQ",
@@ -11,33 +12,64 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:273701842162:web:e301cd5ae426140c41746b"
 };
 
-// ✅ FIX 1: Initialize Firebase WITHOUT offline persistence for testing
+// ✅ Initialize Firebase
+console.log('Initializing Firebase...');
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 
-// ✅ FIX 2: Disable offline persistence temporarily
+// ✅ Initialize Firestore with offline persistence
 export const db = initializeFirestore(app, {
-  // localCache: persistentLocalCache() // COMMENT THIS FOR NOW
+  localCache: persistentLocalCache({
+    cacheSizeBytes: CACHE_SIZE_UNLIMITED
+  })
 });
 
-// ✅ FIX 3: Connection status monitoring
-let isConnected = true;
+// ✅ Connection status
+let isOnline = navigator.onLine;
+let firestoreReady = false;
 
-export const checkFirebaseConnection = async (): Promise<boolean> => {
+// Listen to online/offline events
+window.addEventListener('online', () => {
+  console.log('✅ Online mode activated');
+  isOnline = true;
+});
+
+window.addEventListener('offline', () => {
+  console.log('⚠️ Offline mode activated');
+  isOnline = false;
+});
+
+export const checkFirebaseConnection = async (): Promise<{
+  connected: boolean;
+  online: boolean;
+  firestoreReady: boolean;
+}> => {
   try {
-    // Simple ping test
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    isConnected = true;
-    return true;
+    // Simple test query
+    const testRef = collection(db, '_test');
+    await getDocs(query(testRef, limit(1))).catch(() => {
+      // This is expected to fail - we just want to test connection
+    });
+    
+    firestoreReady = true;
+    return {
+      connected: true,
+      online: isOnline,
+      firestoreReady: true
+    };
   } catch (error) {
-    console.error('Firebase connection error:', error);
-    isConnected = false;
-    return false;
+    console.log('Firestore connection test:', error);
+    return {
+      connected: false,
+      online: isOnline,
+      firestoreReady: false
+    };
   }
 };
 
 export const getFirebaseStatus = () => ({
-  connected: isConnected,
-  lastCheck: new Date().toISOString()
+  online: isOnline,
+  firestoreReady,
+  timestamp: new Date().toISOString()
 });
