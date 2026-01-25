@@ -1,4 +1,4 @@
-// UPDATED & FIXED VERSION (January 19, 2026)
+
 
 import React from 'react';
 
@@ -59,6 +59,9 @@ export interface User {
   reward?: number;
   duration?: number;
   tags?: string[];
+  // ✅ ADDED: For AdminMembers compatibility
+  email?: string;
+  totalBalance?: number;
 }
 
 export interface Campaign {
@@ -327,3 +330,69 @@ export interface HeaderProps {
   onProfileClick: () => void;
   unreadCount: number;
 }
+
+// ✅ ADDED MISSING TYPES
+export interface StatsCardProps {
+  title: string;
+  value: string | number;
+  change?: string;
+  icon: React.ReactNode;
+  color: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  type: string;
+  message: string;
+  timestamp: number;
+  user?: string;
+}
+
+// ✅ ADDED FOR FIREBASE SERVICE COMPATIBILITY
+export interface FirebaseService {
+  checkFirebaseConnection: () => Promise<boolean>;
+  adminService: {
+    getAdminDashboardData: () => Promise<any>;
+    onAdminDataUpdate: (callbacks: any) => () => void;
+    updateUserStatus: (userId: string, status: UserStatus) => Promise<boolean>;
+    approvePayout: (payoutId: string, adminId: string) => Promise<boolean>;
+    approveSubmission: (submissionId: string, adminId: string) => Promise<boolean>;
+    rejectPayout: (payoutId: string, adminId: string) => Promise<boolean>;
+    rejectSubmission: (submissionId: string, adminId: string) => Promise<boolean>;
+    resolveReport: (reportId: string, resolverId: string) => Promise<boolean>;
+    deleteReport: (reportId: string) => Promise<boolean>;
+    updateCampaign: (campaignId: string, updates: Partial<Campaign>) => Promise<boolean>;
+    toggleCampaignStatus: (campaignId: string, currentStatus: boolean) => Promise<void>;
+    deleteCampaign: (campaignId: string) => Promise<void>;
+    createCampaign: (campaignData: Omit<Campaign, 'id' | 'createdAt'>, creatorId: string) => Promise<string>;
+  };
+  cashflowService: {
+    getCashflowData: () => Promise<Cashflow>;
+    updateDailyLimit: (dailyLimit: number) => Promise<boolean>;
+    resetTodaySpent: () => Promise<boolean>;
+  };
+  broadcastService: {
+    sendBroadcast: (content: string, senderId: string, senderName: string, targetUserId?: string) => Promise<string>;
+    markAsRead: (broadcastId: string, userId: string) => Promise<boolean>;
+    getUsers: () => Promise<User[]>;
+  };
+}
+
+// ✅ ADDED FOR UTILS COMPATIBILITY
+export interface FormatOptions {
+  currency?: boolean;
+  date?: boolean;
+  compact?: boolean;
+}
+
+// ✅ EXPORT ALL TYPES
+export type {
+  User as IUser,
+  Campaign as ICampaign,
+  Submission as ISubmission,
+  PayoutRequest as IPayoutRequest,
+  Broadcast as IBroadcast,
+  UserReport as IUserReport,
+  AppLog as IAppLog,
+  AppState as IAppState
+};
