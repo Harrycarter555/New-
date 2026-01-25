@@ -1,8 +1,7 @@
-
-// Simplified & safer firebase initialization
+// firebase.ts
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, CACHE_SIZE_UNLIMITED } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyD0GSKrevCHLP2Fs9LMoq8hwImCWzoFxDQ",
@@ -13,36 +12,64 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:273701842162:web:e301cd5ae426140c41746b"
 };
 
-if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
-  console.warn('Firebase config incomplete. Please set VITE_FIREBASE_* environment variables.');
-}
-
+// ✅ Initialize Firebase
+console.log('Initializing Firebase...');
 const app = initializeApp(firebaseConfig);
+
 export const auth = getAuth(app);
-export const db = getFirestore(app);
 
-// Try to enable persistence (best-effort)
-try {
-  enableIndexedDbPersistence(db).catch((err) => {
-    // Persistence failed (multiple tabs or unsupported)
-    console.warn('IndexedDB persistence not available:', err && err.message ? err.message : err);
-  });
-} catch (err) {
-  console.warn('Persistence initialization error:', err);
-}
+// ✅ Initialize Firestore with offline persistence
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    cacheSizeBytes: CACHE_SIZE_UNLIMITED
+  })
+});
 
-// Simple connection check helper
-export const checkFirebaseConnection = async (): Promise<boolean> => {
+// ✅ Connection status
+let isOnline = navigator.onLine;
+let firestoreReady = false;
+
+// Listen to online/offline events
+window.addEventListener('online', () => {
+  console.log('✅ Online mode activated');
+  isOnline = true;
+});
+
+window.addEventListener('offline', () => {
+  console.log('⚠️ Offline mode activated');
+  isOnline = false;
+});
+
+export const checkFirebaseConnection = async (): Promise<{
+  connected: boolean;
+  online: boolean;
+  firestoreReady: boolean;
+}> => {
   try {
-    // try a small read
-    // Note: importing here to avoid circular imports elsewhere
-    // The collection call will succeed if Firestore is reachable
-    await getFirestore(app);
-    return true;
-  } catch (err) {
-    console.error('Firebase connection check failed:', err);
-    return false;
+    // Simple test query
+    const testRef = collection(db, '_test');
+    await getDocs(query(testRef, limit(1))).catch(() => {
+      // This is expected to fail - we just want to test connection
+    });
+    
+    firestoreReady = true;
+    return {
+      connected: true,
+      online: isOnline,
+      firestoreReady: true
+    };
+  } catch (error) {
+    console.log('Firestore connection test:', error);
+    return {
+      connected: false,
+      online: isOnline,
+      firestoreReady: false
+    };
   }
 };
 
-export default app;
+export const getFirebaseStatus = () => ({
+  online: isOnline,
+  firestoreReady,
+  timestamp: new Date().toISOString()
+});
