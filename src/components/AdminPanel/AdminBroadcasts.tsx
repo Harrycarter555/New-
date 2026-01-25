@@ -1,22 +1,34 @@
 import React, { useState } from 'react';
-import { Broadcast } from '../../types';
+import { Broadcast, User } from '../../types';
 import { ICONS } from '../../constants';
-import { adminService, broadcastService } from './firebaseService';
+import { broadcastService } from './firebaseService';
 
 interface AdminBroadcastsProps {
   broadcasts: Broadcast[];
   showToast: (message: string, type: 'success' | 'error') => void;
-  currentUser: any;
+  currentUser: User;
+  users: User[]; // ✅ अब users की list पास करनी होगी
 }
 
-const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ broadcasts, showToast, currentUser }) => {
+const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ broadcasts, showToast, currentUser, users }) => {
   const [content, setContent] = useState('');
-  const [targetUserId, setTargetUserId] = useState('');
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
+
+  // ✅ Multiple user selection toggle
+  const toggleUserSelection = (userId: string) => {
+    setSelectedUsers(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
 
   const handleSendBroadcast = async () => {
     if (!content.trim()) {
       showToast('Broadcast content is required', 'error');
+      return;
+    }
+    if (selectedUsers.length === 0) {
+      showToast('Please select at least one user', 'error');
       return;
     }
 
@@ -26,12 +38,11 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ broadcasts, showToast
         content,
         currentUser.id,
         currentUser.username,
-        targetUserId || undefined
+        selectedUsers // ✅ अब multiple user IDs जा रही हैं
       );
-      
       showToast('Broadcast sent successfully', 'success');
       setContent('');
-      setTargetUserId('');
+      setSelectedUsers([]);
     } catch (error: any) {
       showToast(error.message || 'Failed to send broadcast', 'error');
     } finally {
@@ -41,76 +52,64 @@ const AdminBroadcasts: React.FC<AdminBroadcastsProps> = ({ broadcasts, showToast
 
   return (
     <div className="space-y-6 animate-slide">
-      {/* Send Broadcast Form */}
-      <div className="bg-black/50 border border-slate-800 p-6 rounded-3xl">
-        <h3 className="text-xl font-bold text-white mb-4">Send Broadcast</h3>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-bold text-slate-300 mb-2">
-              Broadcast Message *
-            </label>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 h-32 resize-none"
-              placeholder="Enter broadcast message..."
-              required
-            />
-          </div>
+      {/* Broadcast Form */}
+      <div className="bg-gray-900 p-6 rounded-lg shadow-lg">
+        <h2 className="text-xl font-bold text-white mb-4 flex items-center">
+          <ICONS.Megaphone className="w-6 h-6 mr-2 text-blue-400" />
+          Send Broadcast
+        </h2>
 
-          <div>
-            <label className="block text-sm font-bold text-slate-300 mb-2">
-              Target User ID (Optional - leave empty for all users)
-            </label>
-            <input
-              type="text"
-              value={targetUserId}
-              onChange={(e) => setTargetUserId(e.target.value)}
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
-              placeholder="Enter user ID for targeted broadcast"
-            />
-          </div>
+        <textarea
+          value={content}
+          onChange={e => setContent(e.target.value)}
+          placeholder="Enter broadcast message..."
+          className="w-full p-3 rounded bg-gray-800 text-white mb-4"
+          rows={4}
+        />
 
-          <button
-            onClick={handleSendBroadcast}
-            disabled={sending || !content.trim()}
-            className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold py-3 rounded-xl hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {sending ? 'Sending...' : 'Send Broadcast'}
-          </button>
+        {/* ✅ User selection list */}
+        <div className="max-h-40 overflow-y-auto border border-gray-700 rounded mb-4 p-2">
+          {users.map(user => (
+            <label key={user.id} className="flex items-center text-gray-300 mb-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedUsers.includes(user.id)}
+                onChange={() => toggleUserSelection(user.id)}
+                className="mr-2"
+              />
+              {user.username} ({user.email})
+            </label>
+          ))}
         </div>
+
+        <button
+          onClick={handleSendBroadcast}
+          disabled={sending}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50"
+        >
+          {sending ? 'Sending...' : 'Send Broadcast'}
+        </button>
       </div>
 
       {/* Broadcast History */}
-      <div>
-        <h3 className="text-xl font-bold text-white mb-4">Broadcast History</h3>
-        
+      <div className="bg-gray-900 p-6 rounded-lg shadow-lg">
+        <h2 className="text-xl font-bold text-white mb-4 flex items-center">
+          <ICONS.History className="w-6 h-6 mr-2 text-green-400" />
+          Broadcast History
+        </h2>
         {broadcasts.length === 0 ? (
-          <div className="text-center py-12 bg-black/30 rounded-xl border border-slate-800">
-            <ICONS.Bell className="w-16 h-16 text-slate-700 mx-auto mb-4" />
-            <p className="text-slate-500 text-sm font-bold">No broadcasts sent yet</p>
-          </div>
+          <p className="text-gray-400">No broadcasts yet.</p>
         ) : (
-          <div className="space-y-4">
-            {broadcasts.map(broadcast => (
-              <div key={broadcast.id} className="bg-slate-900/30 border border-slate-800 p-4 rounded-xl">
-                <p className="text-white mb-2">{broadcast.content}</p>
-                <div className="flex justify-between items-center text-sm text-slate-500">
-                  <span>By: {broadcast.senderName || 'Admin'}</span>
-                  <span>
-                    {new Date(broadcast.timestamp).toLocaleDateString('en-IN', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </span>
-                </div>
-              </div>
+          <ul className="space-y-3">
+            {broadcasts.map(b => (
+              <li key={b.id} className="bg-gray-800 p-3 rounded text-gray-200">
+                <p>{b.content}</p>
+                <small className="text-gray-500">
+                  Sent by {b.senderName} to {b.targetUserIds?.length || 'All'} users
+                </small>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
     </div>
