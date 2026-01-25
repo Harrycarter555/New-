@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, orderBy, onSnapshot, limit } from 'firebase/firestore';
 
 import { 
   AppState, User, Campaign, UserRole, UserStatus 
@@ -20,6 +20,7 @@ import ProfileOverlay from './components/overlays/ProfileOverlay';
 import AccountRecovery from './components/AccountRecovery';
 
 import { ICONS } from './constants.tsx';
+import { adminService } from './components/AdminPanel/firebaseService';
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY as string || '');
@@ -81,16 +82,74 @@ function App() {
 
   // ==================== REAL-TIME LISTENERS ====================
 
+  // Campaigns Listener
+  useEffect(() => {
+    if (!currentUser || currentUser.role === UserRole.ADMIN) return;
+
+    const campaignsRef = collection(db, 'campaigns');
+    const q = query(
+      campaignsRef, 
+      where('active', '==', true),
+      orderBy('createdAt', 'desc')
+    );
+
+    campaignsUnsubscribeRef.current = onSnapshot(q, 
+      (snapshot) => {
+        const campaignsData: Campaign[] = [];
+        let totalRewardPool = 0;
+        
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          const campaign: Campaign = {
+            id: doc.id,
+            title: data.title || '',
+            videoUrl: data.videoUrl || '',
+            thumbnailUrl: data.thumbnailUrl || '',
+            caption: data.caption || '',
+            hashtags: data.hashtags || '',
+            audioName: data.audioName || '',
+            goalViews: data.goalViews || 0,
+            goalLikes: data.goalLikes || 0,
+            basicPay: data.basicPay || 0,
+            viralPay: data.viralPay || 0,
+            active: data.active || false,
+            bioLink: data.bioLink || '',
+            createdAt: data.createdAt || Date.now()
+          };
+          
+          campaignsData.push(campaign);
+          totalRewardPool += campaign.basicPay + campaign.viralPay;
+        });
+
+        setUserCampaigns(campaignsData);
+        setUserStats(prev => ({
+          ...prev,
+          totalActive: campaignsData.length,
+          totalRewardPool
+        }));
+      },
+      (error) => {
+        console.error('Campaigns listener error:', error);
+      }
+    );
+
+    return () => {
+      if (campaignsUnsubscribeRef.current) {
+        campaignsUnsubscribeRef.current();
+      }
+    };
+  }, [currentUser, showToast]);
+
   // User Data Listener
   useEffect(() => {
     if (!currentUser) return;
 
-    // This is a simplified version - in real app you'd use onSnapshot
-    const updateUserData = async () => {
-      try {
-        const userDoc = await getDoc(doc(db, 'users', currentUser.id));
-        if (userDoc.exists()) {
-          const updatedUser = userDoc.data() as User;
+    const userRef = doc(db, 'users', currentUser.id);
+    
+    userUnsubscribeRef.current = onSnapshot(userRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const updatedUser = snapshot.data() as User;
           
           // Check account status
           if (updatedUser.status === UserStatus.SUSPENDED || updatedUser.status === UserStatus.BANNED) {
@@ -108,15 +167,114 @@ function App() {
             walletBalance: updatedUser.walletBalance || 0
           }));
         }
-      } catch (error) {
-        console.error('Error updating user data:', error);
+      },
+      (error) => {
+        console.error('User listener error:', error);
+      }
+    );
+
+    return () => {
+      if (userUnsubscribeRef.current) {
+        userUnsubscribeRef.current();
       }
     };
-
-    // Check every 30 seconds for updates
-    const interval = setInterval(updateUserData, 30000);
-    return () => clearInterval(interval);
   }, [currentUser, showToast]);
+
+  // Broadcasts Listener
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const broadcastsRef = collection(db, 'broadcasts');
+    const q = query(
+      broadcastsRef,
+      where('targetUserId', 'in', [currentUser.id, null]), 
+      orderBy('timestamp', 'desc'),
+      limit(20)
+    );
+
+    broadcastsUnsubscribeRef.current = onSnapshot(q, 
+      (snapshot) => {
+        const broadcastsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setUserBroadcasts(broadcastsData);
+      },
+      (error) => {
+        console.error('Broadcasts listener error:', error);
+      }
+    );
+
+    return () => {
+      if (broadcastsUnsubscribeRef.current) {
+        broadcastsUnsubscribeRef.current();
+      }
+    };
+  }, [currentUser]);
+
+  // Submissions Listener
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const submissionsRef = collection(db, 'submissions');
+    const q = query(
+      submissionsRef,
+      where('userId', '==', currentUser.id),
+      orderBy('timestamp', 'desc'),
+      limit(50)
+    );
+
+    submissionsUnsubscribeRef.current = onSnapshot(q, 
+      (snapshot) => {
+        const submissionsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setUserSubmissions(submissionsData);
+      },
+      (error) => {
+        console.error('Submissions listener error:', error);
+      }
+    );
+
+    return () => {
+      if (submissionsUnsubscribeRef.current) {
+        submissionsUnsubscribeRef.current();
+      }
+    };
+  }, [currentUser]);
+
+  // Payouts Listener
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const payoutsRef = collection(db, 'payouts');
+    const q = query(
+      payoutsRef,
+      where('userId', '==', currentUser.id),
+      orderBy('timestamp', 'desc'),
+      limit(20)
+    );
+
+    payoutsUnsubscribeRef.current = onSnapshot(q, 
+      (snapshot) => {
+        const payoutsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setUserPayouts(payoutsData);
+      },
+      (error) => {
+        console.error('Payouts listener error:', error);
+      }
+    );
+
+    return () => {
+      if (payoutsUnsubscribeRef.current) {
+        payoutsUnsubscribeRef.current();
+      }
+    };
+  }, [currentUser]);
 
   // ==================== AUTH & INITIALIZATION ====================
 
@@ -124,7 +282,7 @@ function App() {
     // Initial loading complete
     setTimeout(() => {
       setLoading(false);
-    }, 1000);
+    }, 1500);
   }, []);
 
   // Auth State Listener
@@ -155,7 +313,18 @@ function App() {
             
             // Set initial view based on role
             if (safeUserData.role === UserRole.ADMIN) {
-              setCurrentView('admin');
+              // Load admin data
+              try {
+                const adminData = await adminService.getAdminDashboardData();
+                setAppState(prev => ({
+                  ...prev,
+                  ...adminData
+                }));
+                setCurrentView('admin');
+              } catch (error) {
+                console.error('Admin data load error:', error);
+                setCurrentView('admin');
+              }
             } else {
               setCurrentView('campaigns');
             }
@@ -239,7 +408,7 @@ function App() {
           <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-cyan-400 font-bold text-lg mb-2">Loading ReelEarn Pro...</p>
           <p className="text-slate-500 text-sm">
-            Connecting to server...
+            Connecting to database...
           </p>
         </div>
       </div>
@@ -283,7 +452,7 @@ function App() {
         onNotifyClick={handleNotifyClick}
         unreadCount={currentUser.role === UserRole.ADMIN ? 
           appState.reports.filter(r => r.status === 'open').length : 
-          0} // Simplified
+          userBroadcasts.filter(b => !currentUser.readBroadcastIds?.includes(b.id)).length}
       />
 
       {/* Toast Notification */}
@@ -337,6 +506,8 @@ function App() {
           <AdminPanel
             currentUser={currentUser}
             showToast={showToast}
+            appState={appState}
+            setAppState={setAppState}
           />
         )}
       </main>
@@ -397,7 +568,7 @@ function App() {
       {/* Footer Info */}
       <div className="fixed bottom-0 left-0 right-0 py-2 bg-black/50 backdrop-blur-sm border-t border-white/10 text-center">
         <p className="text-xs text-slate-600">
-          ReelEarn Pro • Online • v2.0
+          ReelEarn Pro • Online ✓ • v2.0
         </p>
       </div>
     </div>
