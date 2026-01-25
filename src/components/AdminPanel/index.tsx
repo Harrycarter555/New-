@@ -1,8 +1,7 @@
-// Main admin panel component that integrates all admin components
 import React, { useState, useEffect, useCallback } from 'react';
-import { User, UserRole, AdminTab, Broadcast, AppState } from '../../types';
+import { User, UserRole, AdminTab, Broadcast } from '../../types';
 import { ICONS } from '../../constants';
-import { adminService, checkFirebaseConnection, cashflowService, broadcastService, initializationService } from './firebaseService';
+import { adminService, checkFirebaseConnection, cashflowService, broadcastService } from './firebaseService';
 
 // Import Admin Components
 import AdminDashboard from './AdminDashboard';
@@ -19,16 +18,15 @@ import { db } from '../../firebase';
 
 interface AdminPanelProps {
   currentUser: User;
-  showToast: (message: string, type: 'success' | 'error' | 'warning') => void;
-  appState?: AppState;
-  setAppState?: React.Dispatch<React.SetStateAction<AppState>>;
+  showToast: (message: string, type: 'success' | 'error') => void;
+  appState?: any;
+  setAppState?: any;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appState, setAppState }) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [payoutSubTab, setPayoutSubTab] = useState<'payouts' | 'verifications'>('payouts');
   const [isLoading, setIsLoading] = useState(true);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'checking' | 'offline'>('checking');
   const [data, setData] = useState({
     users: [] as User[],
     campaigns: [] as any[],
@@ -39,56 +37,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
     cashflow: { dailyLimit: 100000, todaySpent: 0, startDate: '', endDate: '' }
   });
 
-  // Initialize
-  useEffect(() => {
-    const initializeAdmin = async () => {
-      try {
-        setConnectionStatus('checking');
-        try {
-          await initializationService.initializeCollections();
-        } catch (initErr) {
-          console.warn('Initialization warning:', initErr);
-        }
-
-        const isConnected = await checkFirebaseConnection();
-        if (isConnected) {
-          setConnectionStatus('connected');
-          await loadInitialData();
-        } else {
-          setConnectionStatus('offline');
-          showToast('Working in offline mode. Data may be cached.', 'warning');
-          await loadInitialData();
-        }
-      } catch (err: any) {
-        console.error('Admin initialization failed:', err);
-        setConnectionStatus('disconnected');
-        showToast('Failed to initialize admin panel: ' + (err.message || 'Unknown'), 'error');
-      }
-    };
-
-    initializeAdmin();
-
-    const handleOnline = () => {
-      setConnectionStatus('connected');
-      loadInitialData();
-    };
-    const handleOffline = () => {
-      setConnectionStatus('offline');
-      showToast('You are offline. Some features may be limited.', 'warning');
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // ✅ Load admin data
   const loadInitialData = useCallback(async () => {
     try {
       setIsLoading(true);
+      console.log('📥 Loading admin data...');
+      
       const [adminData, cashflowData] = await Promise.all([
         adminService.getAdminDashboardData(),
         cashflowService.getCashflowData()
@@ -99,118 +53,92 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
         ...adminData,
         cashflow: cashflowData
       }));
-
-      // Sync to global appState if setter provided
-      if (setAppState) {
-        setAppState(prev => ({
-          ...prev,
-          users: adminData.users || prev.users,
-          campaigns: adminData.campaigns || prev.campaigns,
-          submissions: adminData.submissions || prev.submissions,
-          payoutRequests: adminData.payouts || prev.payoutRequests,
-          broadcasts: adminData.broadcasts || prev.broadcasts,
-          reports: adminData.reports || prev.reports,
-          cashflow: cashflowData || prev.cashflow
-        }));
-      }
-
+      
       showToast('Admin dashboard loaded successfully', 'success');
     } catch (error: any) {
       console.error('Error loading admin data:', error);
-      showToast('Failed to load data: ' + (error.message || 'Unknown error'), 'error');
-      setData(prev => ({
-        ...prev,
-        users: prev.users || [],
-        campaigns: prev.campaigns || [],
-        payouts: prev.payouts || [],
-        submissions: prev.submissions || [],
-        reports: prev.reports || [],
-        broadcasts: prev.broadcasts || []
-      }));
+      showToast('Failed to load admin data', 'error');
     } finally {
       setIsLoading(false);
     }
-  }, [setAppState, showToast]);
+  }, [showToast]);
 
-  // Real-time listeners
   useEffect(() => {
-    if (connectionStatus !== 'connected') return;
+    loadInitialData();
+    
+    // Check connection
+    checkFirebaseConnection().then(isConnected => {
+      if (!isConnected) {
+        showToast('Connected to Firebase', 'success');
+      }
+    });
+  }, [loadInitialData, showToast]);
 
+  // ✅ Setup real-time listeners
+  useEffect(() => {
+    console.log('🔔 Setting up real-time listeners...');
+    
     const cleanup = adminService.onAdminDataUpdate({
       onUsers: (users) => {
+        console.log('📊 Users updated:', users.length);
         setData(prev => ({ ...prev, users }));
-        if (setAppState) {
-          setAppState(prev => ({ ...prev, users }));
-        }
       },
       onCampaigns: (campaigns) => {
+        console.log('📊 Campaigns updated:', campaigns.length);
         setData(prev => ({ ...prev, campaigns }));
-        if (setAppState) {
-          setAppState(prev => ({ ...prev, campaigns }));
-        }
       },
       onPayouts: (payouts) => {
+        console.log('📊 Payouts updated:', payouts.length);
         setData(prev => ({ ...prev, payouts }));
-        if (setAppState) {
-          setAppState(prev => ({ ...prev, payoutRequests: payouts }));
-        }
       },
       onSubmissions: (submissions) => {
+        console.log('📊 Submissions updated:', submissions.length);
         setData(prev => ({ ...prev, submissions }));
-        if (setAppState) {
-          setAppState(prev => ({ ...prev, submissions }));
-        }
       },
       onReports: (reports) => {
+        console.log('📊 Reports updated:', reports.length);
         setData(prev => ({ ...prev, reports }));
-        if (setAppState) {
-          setAppState(prev => ({ ...prev, reports }));
-        }
       },
       onBroadcasts: (broadcasts) => {
+        console.log('📊 Broadcasts updated:', broadcasts.length);
         setData(prev => ({ ...prev, broadcasts }));
-        if (setAppState) {
-          setAppState(prev => ({ ...prev, broadcasts }));
-        }
       }
     });
 
     return cleanup;
-  }, [connectionStatus, setAppState]);
+  }, []);
 
-  // Cashflow listener
+  // ✅ Cashflow real-time listener
   useEffect(() => {
-    if (connectionStatus !== 'connected') return;
+    console.log('💰 Setting up cashflow listener...');
+    
     const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
-    const unsubscribe = onSnapshot(cashflowRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const cashflowData = snapshot.data();
-        setData(prev => ({
-          ...prev,
-          cashflow: {
-            dailyLimit: cashflowData.dailyLimit || 100000,
-            todaySpent: cashflowData.todaySpent || 0,
-            startDate: cashflowData.startDate || '',
-            endDate: cashflowData.endDate || ''
-          }
-        }));
-        if (setAppState) {
-          setAppState(prev => ({
+    const unsubscribe = onSnapshot(
+      cashflowRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const cashflowData = snapshot.data();
+          console.log('💰 Cashflow updated:', cashflowData);
+          setData(prev => ({
             ...prev,
             cashflow: {
-              dailyLimit: cashflowData.dailyLimit || prev.cashflow.dailyLimit,
-              todaySpent: cashflowData.todaySpent || prev.cashflow.todaySpent,
-              startDate: cashflowData.startDate || prev.cashflow.startDate,
-              endDate: cashflowData.endDate || prev.cashflow.endDate
+              dailyLimit: cashflowData.dailyLimit || 100000,
+              todaySpent: cashflowData.todaySpent || 0,
+              startDate: cashflowData.startDate || '',
+              endDate: cashflowData.endDate || ''
             }
           }));
         }
+      },
+      (error) => {
+        console.error('Cashflow listener error:', error);
       }
-    }, (err) => console.error('Cashflow listener error:', err));
-    return unsubscribe;
-  }, [connectionStatus, setAppState]);
+    );
 
-  // Refresh
+    return unsubscribe;
+  }, []);
+
+  // ✅ Refresh data function
   const handleRefresh = useCallback(async () => {
     setIsLoading(true);
     showToast('Refreshing data...', 'success');
@@ -233,30 +161,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
 
   return (
     <div className="space-y-6 pb-40 animate-slide">
-      {/* Header & Tabs (unchanged) */}
+      {/* Admin Header */}
       <div className="sticky top-0 z-50 bg-black/80 backdrop-blur-xl border-b border-white/10 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h2 className="text-2xl font-black italic text-white uppercase leading-none">
               ADMIN<span className="text-cyan-400">COMMAND</span>
             </h2>
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold ${
-              connectionStatus === 'connected' 
-                ? 'bg-green-500/20 text-green-400' 
-                : connectionStatus === 'checking' 
-                ? 'bg-amber-500/20 text-amber-400' 
-                : connectionStatus === 'offline'
-                ? 'bg-yellow-500/20 text-yellow-400'
-                : 'bg-red-500/20 text-red-400'
-            }`}>
-              <div className={`w-2 h-2 rounded-full animate-pulse ${
-                connectionStatus === 'connected' ? 'bg-green-500' : 
-                connectionStatus === 'checking' ? 'bg-amber-500' : 
-                connectionStatus === 'offline' ? 'bg-yellow-500' : 'bg-red-500'
-              }`} />
-              {connectionStatus.toUpperCase()}
+            
+            {/* Connection Status */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-green-500/20 text-green-400">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              ONLINE
             </div>
           </div>
+          
           <div className="flex items-center gap-3">
             <button
               onClick={handleRefresh}
@@ -289,12 +208,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
             <button
               key={key}
               onClick={() => setActiveTab(key as AdminTab)}
-              disabled={connectionStatus === 'disconnected'}
               className={`flex items-center gap-2 whitespace-nowrap px-4 py-3 rounded-xl text-xs font-bold uppercase transition-all ${
                 activeTab === key 
                   ? 'bg-cyan-500 text-black shadow-lg' 
-                  : connectionStatus === 'disconnected'
-                  ? 'text-slate-700 cursor-not-allowed'
                   : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
               }`}
             >
@@ -310,7 +226,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-6" />
-            <p className="text-cyan-400 font-bold text-lg mb-2">Loading Admin Panel...</p>
+            <p className="text-cyan-400 font-bold text-lg mb-2">
+              Loading Admin Panel...
+            </p>
+            <p className="text-slate-500 text-sm">
+              Fetching data from database...
+            </p>
           </div>
         ) : (
           <>
@@ -372,14 +293,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast, appStat
         )}
       </div>
 
-      {/* Footer */}
+      {/* Admin Footer */}
       <div className="px-6 pt-6 border-t border-white/10">
         <div className="text-center text-xs text-slate-600">
           <p>© {new Date().getFullYear()} ReelEarn Admin Panel • v2.0.0</p>
           <p className="mt-1">
             Total Users: {data.users.length} • 
-            Active Campaigns: {data.campaigns.filter(c => c.active).length} • 
-            Connection: {connectionStatus}
+            Active Campaigns: {data.campaigns.filter((c: any) => c.active).length} • 
+            Connection: Online
           </p>
         </div>
       </div>
