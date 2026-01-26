@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { auth } from '../firebase';
 import { sendPasswordResetEmail } from 'firebase/auth';
+import { ViewType } from '../types';
 
 interface AccountRecoveryProps {
-  setCurrentView: (view: string) => void;
+  setCurrentView: (view: ViewType) => void;
   showToast: (message: string, type: 'success' | 'error') => void;
 }
 
