@@ -35,7 +35,7 @@ import CampaignsPage from './components/CampaignsPage';
 import MissionDetailOverlay from './components/MissionDetailOverlay';
 import VerifyView from './components/VerifyView';
 import WalletView from './components/WalletView';
-import AdminPanel from './components/AdminPanel';
+import AdminPanel from './components/AdminPanel/index';
 import ProfileOverlay from './components/overlays/ProfileOverlay';
 import AccountRecovery from './components/AccountRecovery';
 import UserReportForm from './components/UserReportForm';
