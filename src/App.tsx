@@ -11,8 +11,6 @@ import {
   onSnapshot,
   limit,
   updateDoc,
-  arrayUnion,
-  increment,
   serverTimestamp
 } from 'firebase/firestore';
 
@@ -45,11 +43,10 @@ import { ICONS } from './constants';
 import {
   checkFirebaseConnection,
   adminService,
-  broadcastService,
-  firebaseUtils
+  broadcastService
 } from './components/AdminPanel/firebaseService';
 
-// ==================== GEMINI INIT (SAFE) ====================
+// ==================== GEMINI INIT ====================
 const genAI = new GoogleGenerativeAI(
   import.meta.env.VITE_GEMINI_API_KEY || ''
 );
@@ -96,7 +93,7 @@ function App() {
     unsubRefs.current = [];
   };
 
-  // ==================== TOAST ====================
+  // ==================== TOAST FUNCTION ====================
   const showToast = useCallback(
     (message: string, type: 'success' | 'error' = 'success') => {
       setToast({ message, type });
@@ -107,18 +104,11 @@ function App() {
 
   // ==================== CHECK FIREBASE CONNECTION ====================
   useEffect(() => {
-    const checkConnection = async () => {
-      try {
-        const isConnected = await checkFirebaseConnection();
-        if (!isConnected) {
-          showToast('⚠️ Firebase connection issue', 'error');
-        }
-      } catch (error) {
-        console.error('Firebase connection check failed:', error);
+    checkFirebaseConnection().then(isConnected => {
+      if (!isConnected) {
+        showToast('Connection issue. Some features may not work.', 'error');
       }
-    };
-
-    checkConnection();
+    });
   }, [showToast]);
 
   // ==================== AUTH LISTENER ====================
@@ -418,6 +408,42 @@ function App() {
     setIsProfileOpen(true);
   };
 
+  // ==================== CREATE APP STATE FOR COMPONENTS ====================
+  const getAppState = (): AppState => ({
+    users: [currentUser || {
+      id: '',
+      username: '',
+      email: '',
+      role: UserRole.USER,
+      status: UserStatus.ACTIVE,
+      walletBalance: 0,
+      pendingBalance: 0,
+      totalEarnings: 0,
+      joinedAt: Date.now(),
+      readBroadcastIds: [],
+      securityKey: ''
+    }],
+    campaigns: userCampaigns,
+    submissions: userSubmissions,
+    payoutRequests: userPayouts,
+    broadcasts: userBroadcasts,
+    reports: [],
+    cashflow: {
+      dailyLimit: 100000,
+      todaySpent: 0,
+      startDate: '',
+      endDate: ''
+    },
+    logs: [],
+    config: { minWithdrawal: 100 }
+  });
+
+  // ==================== SET APP STATE DUMMY FUNCTION ====================
+  const setAppState = () => {
+    // This is a dummy function since we're using real-time Firebase
+    console.log('setAppState called - using Firebase real-time updates');
+  };
+
   // ==================== RENDER LOADING ====================
   if (loading) {
     return (
@@ -449,46 +475,43 @@ function App() {
     );
   };
 
-  // ==================== RENDER HEADER ====================
-  const renderHeader = () => {
-    if (!currentUser || currentView === 'auth' || currentView === 'recovery' || currentView === 'admin') {
-      return null;
-    }
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white">
+      {renderToast()}
+      
+      {/* Header for regular users only */}
+      {currentUser && currentUser.role !== UserRole.ADMIN && currentView !== 'auth' && currentView !== 'recovery' && (
+        <Header
+          user={currentUser}
+          onLogout={handleLogout}
+          onNotifyClick={handleNotifyClick}
+          onProfileClick={handleProfileClick}
+          unreadCount={unreadCount}
+          onReportClick={() => setShowReportForm(true)}
+        />
+      )}
 
-    return (
-      <Header
-        user={currentUser}
-        onLogout={handleLogout}
-        onNotifyClick={handleNotifyClick}
-        onProfileClick={handleProfileClick}
-        unreadCount={unreadCount}
-        onReportClick={() => setShowReportForm(true)}
-      />
-    );
-  };
-
-  // ==================== RENDER MAIN CONTENT ====================
-  const renderMainContent = () => {
-    switch (currentView) {
-      case 'auth':
-        return (
+      {/* Main Content */}
+      <main className="max-w-lg mx-auto px-4 pb-32 pt-4">
+        {/* Auth View */}
+        {currentView === 'auth' && (
           <AuthView
             setCurrentUser={setCurrentUser}
             setCurrentView={setCurrentView}
             showToast={showToast}
           />
-        );
+        )}
 
-      case 'recovery':
-        return (
+        {/* Recovery View */}
+        {currentView === 'recovery' && (
           <AccountRecovery
             setCurrentView={setCurrentView}
             showToast={showToast}
           />
-        );
+        )}
 
-      case 'campaigns':
-        return currentUser ? (
+        {/* Campaigns View */}
+        {currentView === 'campaigns' && currentUser && (
           <CampaignsPage
             userCampaigns={userCampaigns}
             userStats={{
@@ -501,145 +524,47 @@ function App() {
             onNavigateToVerify={() => setCurrentView('verify')}
             onNavigateToWallet={() => setCurrentView('wallet')}
           />
-        ) : null;
+        )}
 
-      case 'verify':
-        return currentUser ? (
+        {/* Verify View */}
+        {currentView === 'verify' && currentUser && (
           <VerifyView
             currentUser={currentUser}
-            appState={{
-              users: [],
-              campaigns: userCampaigns,
-              submissions: [],
-              payoutRequests: [],
-              broadcasts: [],
-              reports: [],
-              cashflow: { dailyLimit: 100000, todaySpent: 0, startDate: '', endDate: '' },
-              logs: [],
-              config: { minWithdrawal: 100 }
-            }}
-            setAppState={() => {}}
+            appState={getAppState()}
+            setAppState={setAppState}
             showToast={showToast}
             genAI={genAI}
             userCampaigns={userCampaigns}
           />
-        ) : null;
+        )}
 
-      case 'wallet':
-        return currentUser ? (
+        {/* Wallet View */}
+        {currentView === 'wallet' && currentUser && (
           <WalletView
             currentUser={currentUser}
-            appState={{
-              users: [],
-              campaigns: [],
-              submissions: [],
-              payoutRequests: [],
-              broadcasts: [],
-              reports: [],
-              cashflow: { dailyLimit: 100000, todaySpent: 0, startDate: '', endDate: '' },
-              logs: [],
-              config: { minWithdrawal: 100 }
-            }}
-            setAppState={() => {}}
+            appState={getAppState()}
+            setAppState={setAppState}
             showToast={showToast}
             userCampaigns={userCampaigns}
             userBroadcasts={userBroadcasts}
             userSubmissions={userSubmissions}
             userPayouts={userPayouts}
           />
-        ) : null;
+        )}
 
-      case 'admin':
-        return currentUser?.role === UserRole.ADMIN ? (
+        {/* Admin Panel */}
+        {currentView === 'admin' && currentUser?.role === UserRole.ADMIN && (
           <AdminPanel
             currentUser={currentUser}
             showToast={showToast}
             appState={null}
             setAppState={() => {}}
           />
-        ) : null;
-
-      default:
-        return null;
-    }
-  };
-
-  // ==================== RENDER BOTTOM NAVIGATION ====================
-  const renderBottomNavigation = () => {
-    if (!currentUser || currentUser.role === UserRole.ADMIN || 
-        currentView === 'auth' || currentView === 'recovery' || currentView === 'admin') {
-      return null;
-    }
-
-    return (
-      <div className="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-xl border-t border-white/10 z-50">
-        <div className="max-w-lg mx-auto px-6 py-3">
-          <div className="grid grid-cols-4 gap-2">
-            <button
-              onClick={() => setCurrentView('campaigns')}
-              className={`flex flex-col items-center p-3 rounded-xl transition-all ${
-                currentView === 'campaigns'
-                  ? 'bg-cyan-500 text-black'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <ICONS.Campaign className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-bold uppercase">Missions</span>
-            </button>
-
-            <button
-              onClick={() => setCurrentView('verify')}
-              className={`flex flex-col items-center p-3 rounded-xl transition-all ${
-                currentView === 'verify'
-                  ? 'bg-cyan-500 text-black'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <ICONS.Check className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-bold uppercase">Verify</span>
-            </button>
-
-            <button
-              onClick={() => setCurrentView('wallet')}
-              className={`flex flex-col items-center p-3 rounded-xl transition-all ${
-                currentView === 'wallet'
-                  ? 'bg-cyan-500 text-black'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <ICONS.Wallet className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-bold uppercase">Wallet</span>
-              {currentUser.pendingBalance > 0 && (
-                <span className="absolute top-1 right-4 w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
-              )}
-            </button>
-
-            <button
-              onClick={handleProfileClick}
-              className="flex flex-col items-center p-3 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
-            >
-              <ICONS.User className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-bold uppercase">Profile</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white">
-      {renderToast()}
-      
-      {/* Header */}
-      {renderHeader()}
-
-      {/* Main Content */}
-      <main className="max-w-lg mx-auto px-4 pb-32 pt-4">
-        {renderMainContent()}
+        )}
       </main>
 
       {/* Overlays & Modals */}
+      {/* Profile Overlay */}
       {isProfileOpen && currentUser && (
         <ProfileOverlay
           isOpen={isProfileOpen}
@@ -649,6 +574,7 @@ function App() {
         />
       )}
 
+      {/* Mission Detail Overlay */}
       {selectedCampaign && (
         <MissionDetailOverlay
           campaign={selectedCampaign}
@@ -660,6 +586,7 @@ function App() {
         />
       )}
 
+      {/* Report Form */}
       {showReportForm && currentUser && (
         <UserReportForm
           currentUser={currentUser}
@@ -668,8 +595,54 @@ function App() {
         />
       )}
 
-      {/* Bottom Navigation */}
-      {renderBottomNavigation()}
+      {/* Bottom Navigation for regular users only */}
+      {currentUser && currentUser.role !== UserRole.ADMIN && 
+       currentView !== 'auth' && currentView !== 'recovery' && currentView !== 'admin' && (
+        <div className="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-xl border-t border-white/10 z-50">
+          <div className="max-w-lg mx-auto px-6 py-3">
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setCurrentView('campaigns')}
+                className={`flex flex-col items-center p-3 rounded-xl transition-all ${
+                  currentView === 'campaigns'
+                    ? 'bg-cyan-500 text-black'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <ICONS.Campaign className="w-5 h-5 mb-1" />
+                <span className="text-[10px] font-bold uppercase">Missions</span>
+              </button>
+
+              <button
+                onClick={() => setCurrentView('verify')}
+                className={`flex flex-col items-center p-3 rounded-xl transition-all ${
+                  currentView === 'verify'
+                    ? 'bg-cyan-500 text-black'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <ICONS.Check className="w-5 h-5 mb-1" />
+                <span className="text-[10px] font-bold uppercase">Verify</span>
+              </button>
+
+              <button
+                onClick={() => setCurrentView('wallet')}
+                className={`flex flex-col items-center p-3 rounded-xl transition-all ${
+                  currentView === 'wallet'
+                    ? 'bg-cyan-500 text-black'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <ICONS.Wallet className="w-5 h-5 mb-1" />
+                <span className="text-[10px] font-bold uppercase">Wallet</span>
+                {currentUser.pendingBalance > 0 && (
+                  <span className="absolute top-1 right-4 w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
