@@ -1602,8 +1602,6 @@ const reportService = {
 
 // ========== EXPORT ALL SERVICES ==========
 export {
-  checkFirebaseConnection,
-  initializationService,
   adminService,
   cashflowService,
   broadcastService,
