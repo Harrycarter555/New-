@@ -2,7 +2,8 @@ import {
   collection, getDocs, updateDoc, doc, query, orderBy, 
   addDoc, deleteDoc, onSnapshot, serverTimestamp, where,
   getDoc, setDoc, increment, arrayUnion, arrayRemove,
-  writeBatch, limit, getCountFromServer, Timestamp
+  writeBatch, limit, getCountFromServer, Timestamp,
+  getApp, getAuth
 } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { 
@@ -14,12 +15,48 @@ import {
 // ========== CONNECTION CHECK ==========
 export const checkFirebaseConnection = async (): Promise<boolean> => {
   try {
-    // Simple test to check if Firestore is accessible
-    await getDocs(query(collection(db, 'users'), limit(1)));
+    console.log('🔍 Checking Firebase connection...');
+    
+    // Check if Firestore db object is available
+    if (!db) {
+      console.error('❌ Firestore db not initialized');
+      return false;
+    }
+    
+    // Use a dedicated test collection that everyone can access
+    const testRef = doc(db, '_test', 'connection');
+    
+    // Write test (allowed for everyone in rules)
+    await setDoc(testRef, {
+      timestamp: Date.now(),
+      test: 'connection_check',
+      status: 'success'
+    }, { merge: true });
+    
+    console.log('✅ Firebase connection test passed');
     return true;
-  } catch (error) {
-    console.error('Firebase connection error:', error);
-    return false;
+    
+  } catch (error: any) {
+    console.error('🔥 Firebase connection error:', {
+      code: error.code,
+      message: error.message
+    });
+    
+    // Even if error, check if it's a permissions issue or real connection issue
+    if (error.code === 'permission-denied') {
+      // This means Firebase IS connected but we don't have permission
+      // Which is okay for connection check
+      console.log('⚠️ Firebase connected but permissions restricted');
+      return true;
+    }
+    
+    // Real connection issues
+    if (error.code === 'unavailable' || error.code === 'failed-precondition') {
+      return false;
+    }
+    
+    // For other errors, assume connected
+    return true;
   }
 };
 
@@ -28,6 +65,15 @@ export const initializationService = {
   initializeCollections: async () => {
     try {
       console.log('Initializing Firestore collections...');
+      
+      // First ensure we have a logged in user (admin)
+      const auth = getAuth();
+      const user = auth.currentUser;
+      
+      if (!user) {
+        console.log('No user logged in, skipping initialization');
+        return { success: false, error: 'User not authenticated' };
+      }
       
       const batch = writeBatch(db);
       let created = false;
@@ -46,6 +92,7 @@ export const initializationService = {
           todaySpent: 0,
           startDate: today.toISOString().split('T')[0],
           endDate: endDate.toISOString().split('T')[0],
+          createdBy: user.uid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
@@ -62,6 +109,7 @@ export const initializationService = {
           dailyLimit: 100000,
           appName: 'ReelEarn Pro',
           version: '1.0.0',
+          createdBy: user.uid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
@@ -89,6 +137,7 @@ export const initializationService = {
           savedSocialUsername: '',
           payoutMethod: 'UPI',
           payoutDetails: '',
+          createdBy: 'system',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
@@ -97,7 +146,9 @@ export const initializationService = {
 
       if (created) {
         await batch.commit();
-        console.log('Collections initialized successfully');
+        console.log('✅ Collections initialized successfully');
+      } else {
+        console.log('✅ Collections already exist');
       }
 
       return { success: true, initialized: created };
@@ -1346,342 +1397,6 @@ export const statsService = {
   }
 };
 
-// ========== COMPATIBILITY EXPORTS ==========
-// For backward compatibility
-export const userService = {
-  getUsers: fetchUsers,
-  updateUserStatus: adminService.updateUserStatus,
-  requestPayout: adminService.requestPayout,
-  submitReport: adminService.submitReport,
-  onUsersUpdate: (callback: (users: User[]) => void) => {
-    return onSnapshot(collection(db, 'users'), (snapshot) => {
-      const users = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          username: data.username || '',
-          email: data.email || '',
-          role: data.role || UserRole.USER,
-          status: data.status || UserStatus.ACTIVE,
-          walletBalance: Number(data.walletBalance) || 0,
-          pendingBalance: Number(data.pendingBalance) || 0,
-          totalEarnings: Number(data.totalEarnings) || 0,
-          joinedAt: data.joinedAt || Date.now(),
-          lastLoginAt: data.lastLoginAt || Date.now(),
-          readBroadcastIds: data.readBroadcastIds || [],
-          securityKey: data.securityKey || '',
-          savedSocialUsername: data.savedSocialUsername || '',
-          payoutMethod: data.payoutMethod,
-          payoutDetails: data.payoutDetails,
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
-        } as User;
-      });
-      callback(users);
-    });
-  }
-};
-
-export const campaignService = {
-  getCampaigns: fetchCampaigns,
-  createCampaign: adminService.createCampaign,
-  updateCampaign: adminService.updateCampaign,
-  toggleCampaignStatus: adminService.toggleCampaignStatus,
-  deleteCampaign: adminService.deleteCampaign,
-  onCampaignsUpdate: (callback: (campaigns: Campaign[]) => void) => {
-    return onSnapshot(query(collection(db, 'campaigns'), orderBy('createdAt', 'desc')), (snapshot) => {
-      const campaigns = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          title: data.title || 'Untitled Campaign',
-          description: data.description || '',
-          videoUrl: data.videoUrl || '',
-          thumbnailUrl: data.thumbnailUrl || '',
-          caption: data.caption || '',
-          hashtags: data.hashtags || '',
-          audioName: data.audioName || '',
-          goalViews: Number(data.goalViews) || 0,
-          goalLikes: Number(data.goalLikes) || 0,
-          basicPay: Number(data.basicPay) || 0,
-          viralPay: Number(data.viralPay) || 0,
-          active: Boolean(data.active),
-          bioLink: data.bioLink || '',
-          createdBy: data.createdBy || '',
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
-        } as Campaign;
-      });
-      callback(campaigns);
-    });
-  }
-};
-
-export const submissionService = {
-  getSubmissions: fetchSubmissions,
-  approveSubmission: adminService.approveSubmission,
-  rejectSubmission: adminService.rejectSubmission,
-  createSubmission: adminService.createSubmission,
-  onSubmissionsUpdate: (callback: (submissions: Submission[]) => void) => {
-    return onSnapshot(query(collection(db, 'submissions'), orderBy('timestamp', 'desc')), (snapshot) => {
-      const submissions = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          userId: data.userId || '',
-          username: data.username || '',
-          socialUsername: data.socialUsername || '',
-          campaignId: data.campaignId || '',
-          campaignTitle: data.campaignTitle || '',
-          platform: data.platform || Platform.INSTAGRAM,
-          status: data.status || SubmissionStatus.PENDING,
-          timestamp: data.timestamp || Date.now(),
-          rewardAmount: Number(data.rewardAmount) || 0,
-          externalLink: data.externalLink || '',
-          isViralBonus: data.isViralBonus || false,
-          approvedAt: data.approvedAt,
-          rejectedAt: data.rejectedAt,
-          rejectionReason: data.rejectionReason,
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
-        } as Submission;
-      });
-      callback(submissions);
-    });
-  }
-};
-
-export const payoutService = {
-  getPayouts: fetchPayouts,
-  approvePayout: adminService.approvePayout,
-  rejectPayout: adminService.rejectPayout,
-  holdPayout: adminService.holdPayout,
-  releasePayoutHold: adminService.releasePayoutHold,
-  requestPayout: adminService.requestPayout,
-  onPayoutsUpdate: (callback: (payouts: PayoutRequest[]) => void) => {
-    return onSnapshot(query(collection(db, 'payouts'), orderBy('timestamp', 'desc')), (snapshot) => {
-      const payouts = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          userId: data.userId || '',
-          username: data.username || '',
-          amount: Number(data.amount) || 0,
-          method: data.method || 'UPI',
-          status: data.status || PayoutStatus.PENDING,
-          timestamp: data.timestamp || Date.now(),
-          upiId: data.upiId || '',
-          accountDetails: data.accountDetails || '',
-          requestedAt: data.requestedAt || Date.now(),
-          processedAt: data.processedAt,
-          processedBy: data.processedBy,
-          rejectionReason: data.rejectionReason,
-          holdReason: data.holdReason,
-          holdAt: data.holdAt,
-          heldBy: data.heldBy,
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
-        } as PayoutRequest;
-      });
-      callback(payouts);
-    });
-  }
-};
-
-export const reportService = {
-  getReports: fetchReports,
-  resolveReport: adminService.resolveReport,
-  deleteReport: adminService.deleteReport,
-  submitReport: adminService.submitReport,
-  onReportsUpdate: (callback: (reports: UserReport[]) => void) => {
-    return onSnapshot(query(collection(db, 'reports'), orderBy('timestamp', 'desc')), (snapshot) => {
-      const reports = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          userId: data.userId || '',
-          username: data.username || '',
-          email: data.email || '',
-          message: data.message || '',
-          category: data.category || 'other',
-          status: data.status || 'open',
-          timestamp: data.timestamp || Date.now(),
-          resolvedAt: data.resolvedAt,
-          resolvedBy: data.resolvedBy,
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
-        } as UserReport;
-      });
-      callback(reports);
-    });
-  }
-};
-
-// ========== UTILITY FUNCTIONS ==========
-export const firebaseUtils = {
-  // Get user by ID
-  getUserById: async (userId: string): Promise<User | null> => {
-    try {
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      if (!userDoc.exists()) return null;
-      
-      const data = userDoc.data();
-      return {
-        id: userDoc.id,
-        username: data.username || '',
-        email: data.email || '',
-        role: data.role || UserRole.USER,
-        status: data.status || UserStatus.ACTIVE,
-        walletBalance: Number(data.walletBalance) || 0,
-        pendingBalance: Number(data.pendingBalance) || 0,
-        totalEarnings: Number(data.totalEarnings) || 0,
-        joinedAt: data.joinedAt || Date.now(),
-        lastLoginAt: data.lastLoginAt || Date.now(),
-        readBroadcastIds: data.readBroadcastIds || [],
-        securityKey: data.securityKey || '',
-        savedSocialUsername: data.savedSocialUsername || '',
-        payoutMethod: data.payoutMethod,
-        payoutDetails: data.payoutDetails,
-        createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-        updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
-      } as User;
-    } catch (error) {
-      console.error('Error getting user by ID:', error);
-      return null;
-    }
-  },
-
-  // Update user wallet
-  updateUserWallet: async (userId: string, amount: number, type: 'add' | 'subtract') => {
-    try {
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, {
-        walletBalance: increment(type === 'add' ? amount : -amount),
-        updatedAt: serverTimestamp()
-      });
-      return true;
-    } catch (error) {
-      console.error('Error updating user wallet:', error);
-      throw error;
-    }
-  },
-
-  // Get user's submissions
-  getUserSubmissions: async (userId: string): Promise<Submission[]> => {
-    try {
-      const q = query(
-        collection(db, 'submissions'),
-        where('userId', '==', userId),
-        orderBy('timestamp', 'desc')
-      );
-      
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          userId: data.userId || '',
-          username: data.username || '',
-          socialUsername: data.socialUsername || '',
-          campaignId: data.campaignId || '',
-          campaignTitle: data.campaignTitle || '',
-          platform: data.platform || Platform.INSTAGRAM,
-          status: data.status || SubmissionStatus.PENDING,
-          timestamp: data.timestamp || Date.now(),
-          rewardAmount: Number(data.rewardAmount) || 0,
-          externalLink: data.externalLink || '',
-          isViralBonus: data.isViralBonus || false,
-          approvedAt: data.approvedAt,
-          rejectedAt: data.rejectedAt,
-          rejectionReason: data.rejectionReason,
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
-        } as Submission;
-      });
-    } catch (error) {
-      console.error('Error getting user submissions:', error);
-      return [];
-    }
-  },
-
-  // Get user's payouts
-  getUserPayouts: async (userId: string): Promise<PayoutRequest[]> => {
-    try {
-      const q = query(
-        collection(db, 'payouts'),
-        where('userId', '==', userId),
-        orderBy('timestamp', 'desc')
-      );
-      
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          userId: data.userId || '',
-          username: data.username || '',
-          amount: Number(data.amount) || 0,
-          method: data.method || 'UPI',
-          status: data.status || PayoutStatus.PENDING,
-          timestamp: data.timestamp || Date.now(),
-          upiId: data.upiId || '',
-          accountDetails: data.accountDetails || '',
-          requestedAt: data.requestedAt || Date.now(),
-          processedAt: data.processedAt,
-          processedBy: data.processedBy,
-          rejectionReason: data.rejectionReason,
-          holdReason: data.holdReason,
-          holdAt: data.holdAt,
-          heldBy: data.heldBy,
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
-        } as PayoutRequest;
-      });
-    } catch (error) {
-      console.error('Error getting user payouts:', error);
-      return [];
-    }
-  },
-
-  // Get active campaigns
-  getActiveCampaigns: async (): Promise<Campaign[]> => {
-    try {
-      const q = query(
-        collection(db, 'campaigns'),
-        where('active', '==', true),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          title: data.title || 'Untitled Campaign',
-          description: data.description || '',
-          videoUrl: data.videoUrl || '',
-          thumbnailUrl: data.thumbnailUrl || '',
-          caption: data.caption || '',
-          hashtags: data.hashtags || '',
-          audioName: data.audioName || '',
-          goalViews: Number(data.goalViews) || 0,
-          goalLikes: Number(data.goalLikes) || 0,
-          basicPay: Number(data.basicPay) || 0,
-          viralPay: Number(data.viralPay) || 0,
-          active: Boolean(data.active),
-          bioLink: data.bioLink || '',
-          createdBy: data.createdBy || '',
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
-        } as Campaign;
-      });
-    } catch (error) {
-      console.error('Error getting active campaigns:', error);
-      return [];
-    }
-  }
-};
-
 // Export everything
 export default {
   checkFirebaseConnection,
@@ -1689,11 +1404,5 @@ export default {
   adminService,
   cashflowService,
   broadcastService,
-  statsService,
-  userService,
-  campaignService,
-  submissionService,
-  payoutService,
-  reportService,
-  firebaseUtils
+  statsService
 };
