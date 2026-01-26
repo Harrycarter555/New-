@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, UserRole, AdminTab, Broadcast } from '../../types';
 import { ICONS } from '../../constants';
-import { adminService, checkFirebaseConnection, cashflowService, broadcastService } from './firebaseService';
+import { adminService, checkFirebaseConnection, cashflowService } from './firebaseService';
 
 // Import Admin Components
 import AdminDashboard from './AdminDashboard';
@@ -160,14 +160,22 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
   }
 
   return (
-    <div className="space-y-6 pb-40 animate-slide">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white pb-20">
       {/* Admin Header */}
       <div className="sticky top-0 z-50 bg-black/80 backdrop-blur-xl border-b border-white/10 px-6 py-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div className="flex items-center gap-4">
-            <h2 className="text-2xl font-black italic text-white uppercase leading-none">
-              ADMIN<span className="text-cyan-400">COMMAND</span>
-            </h2>
+            <div className="flex items-center gap-2">
+              <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center">
+                <ICONS.Shield className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-black italic text-white uppercase leading-none">
+                  ADMIN<span className="text-cyan-400">COMMAND</span>
+                </h2>
+                <p className="text-xs text-slate-400">Control Panel v2.0</p>
+              </div>
+            </div>
             
             {/* Connection Status */}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-green-500/20 text-green-400">
@@ -176,7 +184,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
             </div>
           </div>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            {/* Admin Info */}
+            <div className="text-right">
+              <p className="text-xs text-slate-400">Logged in as</p>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-cyan-500/20 rounded-full flex items-center justify-center">
+                  <ICONS.User className="w-4 h-4 text-cyan-400" />
+                </div>
+                <p className="text-sm font-bold text-white">@{currentUser.username}</p>
+              </div>
+            </div>
+            
+            {/* Refresh Button */}
             <button
               onClick={handleRefresh}
               disabled={isLoading}
@@ -185,123 +205,136 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
             >
               <ICONS.Refresh className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
-            <div className="text-right">
-              <p className="text-xs text-slate-400">Logged in as</p>
-              <p className="text-sm font-bold text-white">@{currentUser.username}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        {/* Navigation Tabs */}
+        <div className="mb-8">
+          <div className="flex gap-2 bg-white/5 p-2 rounded-2xl border border-white/10 overflow-x-auto hide-scrollbar">
+            {([
+              { key: 'dashboard', label: 'Dashboard', icon: ICONS.Home },
+              { key: 'members', label: 'Members', icon: ICONS.Users },
+              { key: 'campaigns', label: 'Campaigns', icon: ICONS.Campaign },
+              { key: 'cashflow', label: 'Cashflow', icon: ICONS.Dollar },
+              { key: 'payouts', label: 'Payouts', icon: ICONS.Wallet },
+              { key: 'reports', label: 'Reports', icon: ICONS.AlertCircle },
+              { key: 'broadcasts', label: 'Broadcasts', icon: ICONS.Bell }
+            ] as const).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key as AdminTab)}
+                className={`flex items-center gap-2 whitespace-nowrap px-6 py-3 rounded-xl text-sm font-bold uppercase transition-all ${
+                  activeTab === key 
+                    ? 'bg-cyan-500 text-black shadow-lg' 
+                    : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Content Area */}
+        <div className="min-h-[60vh]">
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-6" />
+              <p className="text-cyan-400 font-bold text-lg mb-2">
+                Loading Admin Panel...
+              </p>
+              <p className="text-slate-500 text-sm">
+                Fetching data from database...
+              </p>
             </div>
-          </div>
+          ) : (
+            <>
+              {activeTab === 'dashboard' && (
+                <AdminDashboard 
+                  showToast={showToast}
+                  data={data}
+                  onRefresh={handleRefresh}
+                />
+              )}
+              
+              {activeTab === 'members' && (
+                <AdminMembers 
+                  users={data.users} 
+                  showToast={showToast}
+                />
+              )}
+              
+              {activeTab === 'campaigns' && (
+                <AdminCampaigns 
+                  campaigns={data.campaigns} 
+                  showToast={showToast}
+                  currentUser={currentUser}
+                />
+              )}
+              
+              {activeTab === 'cashflow' && (
+                <AdminCashflow 
+                  cashflow={data.cashflow} 
+                  showToast={showToast}
+                />
+              )}
+              
+              {activeTab === 'payouts' && (
+                <AdminPayouts 
+                  payouts={data.payouts} 
+                  submissions={data.submissions} 
+                  showToast={showToast}
+                  payoutSubTab={payoutSubTab}
+                  setPayoutSubTab={setPayoutSubTab}
+                />
+              )}
+              
+              {activeTab === 'reports' && (
+                <AdminReports 
+                  reports={data.reports} 
+                  showToast={showToast}
+                />
+              )}
+              
+              {activeTab === 'broadcasts' && (
+                <AdminBroadcasts 
+                  broadcasts={data.broadcasts} 
+                  showToast={showToast}
+                  currentUser={currentUser}
+                  users={data.users}
+                />
+              )}
+            </>
+          )}
         </div>
-      </div>
-
-      {/* Navigation Tabs */}
-      <div className="px-6">
-        <div className="flex gap-2 bg-white/5 p-2 rounded-2xl border border-white/10 overflow-x-auto hide-scrollbar">
-          {([
-            { key: 'dashboard', label: 'Dashboard', icon: ICONS.Home },
-            { key: 'members', label: 'Members', icon: ICONS.Users },
-            { key: 'campaigns', label: 'Campaigns', icon: ICONS.Campaign },
-            { key: 'cashflow', label: 'Cashflow', icon: ICONS.Dollar },
-            { key: 'payouts', label: 'Payouts', icon: ICONS.Wallet },
-            { key: 'reports', label: 'Reports', icon: ICONS.AlertCircle },
-            { key: 'broadcasts', label: 'Broadcasts', icon: ICONS.Bell }
-          ] as const).map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key as AdminTab)}
-              className={`flex items-center gap-2 whitespace-nowrap px-4 py-3 rounded-xl text-xs font-bold uppercase transition-all ${
-                activeTab === key 
-                  ? 'bg-cyan-500 text-black shadow-lg' 
-                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Content Area */}
-      <div className="px-6 min-h-[60vh]">
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-6" />
-            <p className="text-cyan-400 font-bold text-lg mb-2">
-              Loading Admin Panel...
-            </p>
-            <p className="text-slate-500 text-sm">
-              Fetching data from database...
-            </p>
-          </div>
-        ) : (
-          <>
-            {activeTab === 'dashboard' && (
-              <AdminDashboard 
-                showToast={showToast}
-                data={data}
-                onRefresh={handleRefresh}
-              />
-            )}
-            
-            {activeTab === 'members' && (
-              <AdminMembers 
-                users={data.users} 
-                showToast={showToast}
-              />
-            )}
-            
-            {activeTab === 'campaigns' && (
-              <AdminCampaigns 
-                campaigns={data.campaigns} 
-                showToast={showToast}
-                currentUser={currentUser}
-              />
-            )}
-            
-            {activeTab === 'cashflow' && (
-              <AdminCashflow 
-                cashflow={data.cashflow} 
-                showToast={showToast}
-              />
-            )}
-            
-            {activeTab === 'payouts' && (
-              <AdminPayouts 
-                payouts={data.payouts} 
-                submissions={data.submissions} 
-                showToast={showToast}
-                payoutSubTab={payoutSubTab}
-                setPayoutSubTab={setPayoutSubTab}
-              />
-            )}
-            
-            {activeTab === 'reports' && (
-              <AdminReports 
-                reports={data.reports} 
-                showToast={showToast}
-              />
-            )}
-            
-            {activeTab === 'broadcasts' && (
-              <AdminBroadcasts 
-                broadcasts={data.broadcasts} 
-                showToast={showToast}
-                currentUser={currentUser}
-              />
-            )}
-          </>
-        )}
       </div>
 
       {/* Admin Footer */}
-      <div className="px-6 pt-6 border-t border-white/10">
-        <div className="text-center text-xs text-slate-600">
-          <p>© {new Date().getFullYear()} ReelEarn Admin Panel • v2.0.0</p>
-          <p className="mt-1">
-            Total Users: {data.users.length} • 
-            Active Campaigns: {data.campaigns.filter((c: any) => c.active).length} • 
-            Connection: Online
-          </p>
+      <div className="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-xl border-t border-white/10 py-4">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex justify-between items-center">
+            <div className="text-xs text-slate-600">
+              <p>© {new Date().getFullYear()} ReelEarn Admin Panel • v2.0.0</p>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-slate-500">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span>Total Users: {data.users.length}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></div>
+                <span>Active Campaigns: {data.campaigns.filter((c: any) => c.active).length}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></div>
+                <span>Pending Payouts: {data.payouts.filter((p: any) => p.status === 'pending').length}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
