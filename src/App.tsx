@@ -12,7 +12,8 @@ import {
   limit,
   updateDoc,
   arrayUnion,
-  increment
+  increment,
+  serverTimestamp
 } from 'firebase/firestore';
 
 import {
@@ -44,7 +45,8 @@ import { ICONS } from './constants';
 import {
   checkFirebaseConnection,
   adminService,
-  broadcastService
+  broadcastService,
+  firebaseUtils
 } from './components/AdminPanel/firebaseService';
 
 // ==================== GEMINI INIT (SAFE) ====================
@@ -62,23 +64,6 @@ type ViewType =
 
 function App() {
   // ==================== GLOBAL STATE ====================
-  const [appState, setAppState] = useState<AppState>({
-    users: [],
-    campaigns: [],
-    submissions: [],
-    payoutRequests: [],
-    broadcasts: [],
-    reports: [],
-    cashflow: {
-      dailyLimit: 100000,
-      todaySpent: 0,
-      startDate: '',
-      endDate: ''
-    },
-    logs: [],
-    config: { minWithdrawal: 100 }
-  });
-
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<ViewType>('auth');
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
@@ -91,7 +76,6 @@ function App() {
     type: 'success' | 'error';
   } | null>(null);
 
-  const [firebaseStatus, setFirebaseStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
   const [unreadCount, setUnreadCount] = useState(0);
 
   // ==================== REAL-TIME USER DATA ====================
@@ -121,32 +105,20 @@ function App() {
     []
   );
 
-  // ==================== FIREBASE HEALTH CHECK ====================
+  // ==================== CHECK FIREBASE CONNECTION ====================
   useEffect(() => {
-    let active = true;
-
     const checkConnection = async () => {
       try {
-        setFirebaseStatus('connecting');
-        const ok = await checkFirebaseConnection();
-        if (!active) return;
-
-        setFirebaseStatus(ok ? 'connected' : 'disconnected');
-        if (!ok) {
-          showToast('Firebase disconnected. Offline mode.', 'error');
+        const isConnected = await checkFirebaseConnection();
+        if (!isConnected) {
+          showToast('⚠️ Firebase connection issue', 'error');
         }
-      } catch {
-        if (active) setFirebaseStatus('disconnected');
+      } catch (error) {
+        console.error('Firebase connection check failed:', error);
       }
     };
 
     checkConnection();
-    const id = setInterval(checkConnection, 60000);
-
-    return () => {
-      active = false;
-      clearInterval(id);
-    };
   }, [showToast]);
 
   // ==================== AUTH LISTENER ====================
@@ -171,10 +143,10 @@ function App() {
           return;
         }
 
-        const user = snap.data() as User;
-
+        const userData = snap.data();
+        
         // Check if user is suspended or banned
-        if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.BANNED) {
+        if (userData.status === UserStatus.SUSPENDED || userData.status === UserStatus.BANNED) {
           showToast('Account suspended. Contact admin.', 'error');
           await signOut(auth);
           return;
@@ -183,37 +155,40 @@ function App() {
         // Update last login
         await updateDoc(userDocRef, {
           lastLoginAt: Date.now(),
-          updatedAt: new Date()
+          updatedAt: serverTimestamp()
         });
 
         const safeUser: User = {
-          ...user,
           id: firebaseUser.uid,
-          readBroadcastIds: user.readBroadcastIds || [],
-          pendingBalance: user.pendingBalance || 0,
-          walletBalance: user.walletBalance || 0,
-          totalEarnings: user.totalEarnings || 0,
-          savedSocialUsername: user.savedSocialUsername || '',
-          securityKey: user.securityKey || '',
-          payoutMethod: user.payoutMethod || 'UPI',
-          payoutDetails: user.payoutDetails || ''
+          username: userData.username || '',
+          email: userData.email || '',
+          role: userData.role || UserRole.USER,
+          status: userData.status || UserStatus.ACTIVE,
+          walletBalance: Number(userData.walletBalance) || 0,
+          pendingBalance: Number(userData.pendingBalance) || 0,
+          totalEarnings: Number(userData.totalEarnings) || 0,
+          joinedAt: userData.joinedAt || Date.now(),
+          lastLoginAt: userData.lastLoginAt || Date.now(),
+          readBroadcastIds: userData.readBroadcastIds || [],
+          securityKey: userData.securityKey || '',
+          savedSocialUsername: userData.savedSocialUsername || '',
+          payoutMethod: userData.payoutMethod || 'UPI',
+          payoutDetails: userData.payoutDetails || '',
+          createdAt: userData.createdAt?.toDate?.().getTime() || Date.now(),
+          updatedAt: userData.updatedAt?.toDate?.().getTime() || Date.now()
         };
 
         setCurrentUser(safeUser);
-        setCurrentView(
-          safeUser.role === UserRole.ADMIN ? 'admin' : 'campaigns'
-        );
-
-        // Load admin data if admin
+        
+        // Set view based on role
         if (safeUser.role === UserRole.ADMIN) {
-          try {
-            const adminData = await adminService.getAdminDashboardData();
-            setAppState(prev => ({ ...prev, ...adminData }));
-          } catch (error) {
-            console.error('Error loading admin data:', error);
-          }
+          setCurrentView('admin');
+        } else {
+          setCurrentView('campaigns');
         }
-      } catch (err) {
+
+        showToast('Login successful!', 'success');
+      } catch (err: any) {
         console.error('Auth error:', err);
         showToast('Login failed. Please try again.', 'error');
         await signOut(auth);
@@ -232,20 +207,19 @@ function App() {
   useEffect(() => {
     if (!currentUser || currentUser.role === UserRole.ADMIN) return;
 
-    const campaignsRef = collection(db, 'campaigns');
     const q = query(
-      campaignsRef,
+      collection(db, 'campaigns'),
       where('active', '==', true),
       orderBy('createdAt', 'desc')
     );
 
     const unsub = onSnapshot(q, (snapshot) => {
-      const list: Campaign[] = [];
+      const campaigns: Campaign[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
-        list.push({
+        campaigns.push({
           id: doc.id,
-          title: data.title || 'Untitled Campaign',
+          title: data.title || '',
           description: data.description || '',
           videoUrl: data.videoUrl || '',
           thumbnailUrl: data.thumbnailUrl || '',
@@ -262,7 +236,7 @@ function App() {
           updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
         });
       });
-      setUserCampaigns(list);
+      setUserCampaigns(campaigns);
     }, (error) => {
       console.error('Campaigns listener error:', error);
     });
@@ -275,9 +249,8 @@ function App() {
   useEffect(() => {
     if (!currentUser) return;
 
-    const broadcastsRef = collection(db, 'broadcasts');
     const q = query(
-      broadcastsRef,
+      collection(db, 'broadcasts'),
       where('targetUserId', 'in', [null, currentUser.id]),
       orderBy('timestamp', 'desc'),
       limit(20)
@@ -300,12 +273,10 @@ function App() {
       setUserBroadcasts(broadcasts);
 
       // Calculate unread count
-      if (currentUser) {
-        const unread = broadcasts.filter(b => 
-          !currentUser.readBroadcastIds?.includes(b.id)
-        ).length;
-        setUnreadCount(unread);
-      }
+      const unread = broadcasts.filter(b => 
+        !currentUser.readBroadcastIds?.includes(b.id)
+      ).length;
+      setUnreadCount(unread);
     }, (error) => {
       console.error('Broadcasts listener error:', error);
     });
@@ -330,8 +301,14 @@ function App() {
         await broadcastService.markAsRead(broadcast.id, currentUser.id);
       }
 
-      // Update local state
+      // Update user's read broadcast IDs
       const newReadIds = [...(currentUser.readBroadcastIds || []), ...unreadBroadcasts.map(b => b.id)];
+      await updateDoc(doc(db, 'users', currentUser.id), {
+        readBroadcastIds: newReadIds,
+        updatedAt: serverTimestamp()
+      });
+
+      // Update local state
       setCurrentUser(prev => prev ? {
         ...prev,
         readBroadcastIds: newReadIds
@@ -339,8 +316,9 @@ function App() {
 
       setUnreadCount(0);
       showToast('All messages marked as read', 'success');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error marking broadcasts as read:', error);
+      showToast(error.message || 'Failed to mark as read', 'error');
     }
   }, [currentUser, userBroadcasts, showToast]);
 
@@ -348,9 +326,8 @@ function App() {
   useEffect(() => {
     if (!currentUser) return;
 
-    const submissionsRef = collection(db, 'submissions');
     const q = query(
-      submissionsRef,
+      collection(db, 'submissions'),
       where('userId', '==', currentUser.id),
       orderBy('timestamp', 'desc'),
       limit(50)
@@ -389,9 +366,8 @@ function App() {
   useEffect(() => {
     if (!currentUser) return;
 
-    const payoutsRef = collection(db, 'payouts');
     const q = query(
-      payoutsRef,
+      collection(db, 'payouts'),
       where('userId', '==', currentUser.id),
       orderBy('timestamp', 'desc'),
       limit(20)
@@ -431,7 +407,7 @@ function App() {
       setCurrentUser(null);
       setCurrentView('auth');
       showToast('Logged out successfully', 'success');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Logout error:', error);
       showToast('Logout failed', 'error');
     }
@@ -473,59 +449,46 @@ function App() {
     );
   };
 
-  // ==================== RENDER FIREBASE STATUS ====================
-  const renderFirebaseStatus = () => {
-    if (firebaseStatus === 'connected') return null;
+  // ==================== RENDER HEADER ====================
+  const renderHeader = () => {
+    if (!currentUser || currentView === 'auth' || currentView === 'recovery' || currentView === 'admin') {
+      return null;
+    }
 
     return (
-      <div className="fixed bottom-4 right-4 z-[999] px-4 py-2 rounded-full bg-red-500/20 border border-red-500/30 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${
-            firebaseStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
-          }`}></div>
-          <span className="text-xs text-white font-bold">
-            {firebaseStatus === 'connecting' ? 'Connecting...' : 'Offline Mode'}
-          </span>
-        </div>
-      </div>
+      <Header
+        user={currentUser}
+        onLogout={handleLogout}
+        onNotifyClick={handleNotifyClick}
+        onProfileClick={handleProfileClick}
+        unreadCount={unreadCount}
+        onReportClick={() => setShowReportForm(true)}
+      />
     );
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white">
-      {renderToast()}
-      {renderFirebaseStatus()}
-
-      {/* Header for regular users */}
-      {currentUser && currentUser.role !== UserRole.ADMIN && currentView !== 'auth' && (
-        <Header
-          user={currentUser}
-          onLogout={handleLogout}
-          onNotifyClick={handleNotifyClick}
-          onProfileClick={handleProfileClick}
-          unreadCount={unreadCount}
-          onReportClick={() => setShowReportForm(true)}
-        />
-      )}
-
-      {/* Main Content */}
-      <main className="max-w-lg mx-auto px-4 pb-32 pt-4">
-        {currentView === 'auth' && (
+  // ==================== RENDER MAIN CONTENT ====================
+  const renderMainContent = () => {
+    switch (currentView) {
+      case 'auth':
+        return (
           <AuthView
             setCurrentUser={setCurrentUser}
             setCurrentView={setCurrentView}
             showToast={showToast}
           />
-        )}
+        );
 
-        {currentView === 'recovery' && (
+      case 'recovery':
+        return (
           <AccountRecovery
             setCurrentView={setCurrentView}
             showToast={showToast}
           />
-        )}
+        );
 
-        {currentView === 'campaigns' && currentUser && (
+      case 'campaigns':
+        return currentUser ? (
           <CampaignsPage
             userCampaigns={userCampaigns}
             userStats={{
@@ -538,40 +501,142 @@ function App() {
             onNavigateToVerify={() => setCurrentView('verify')}
             onNavigateToWallet={() => setCurrentView('wallet')}
           />
-        )}
+        ) : null;
 
-        {currentView === 'verify' && currentUser && (
+      case 'verify':
+        return currentUser ? (
           <VerifyView
             currentUser={currentUser}
-            appState={appState}
-            setAppState={setAppState}
+            appState={{
+              users: [],
+              campaigns: userCampaigns,
+              submissions: [],
+              payoutRequests: [],
+              broadcasts: [],
+              reports: [],
+              cashflow: { dailyLimit: 100000, todaySpent: 0, startDate: '', endDate: '' },
+              logs: [],
+              config: { minWithdrawal: 100 }
+            }}
+            setAppState={() => {}}
             showToast={showToast}
             genAI={genAI}
             userCampaigns={userCampaigns}
           />
-        )}
+        ) : null;
 
-        {currentView === 'wallet' && currentUser && (
+      case 'wallet':
+        return currentUser ? (
           <WalletView
             currentUser={currentUser}
-            appState={appState}
-            setAppState={setAppState}
+            appState={{
+              users: [],
+              campaigns: [],
+              submissions: [],
+              payoutRequests: [],
+              broadcasts: [],
+              reports: [],
+              cashflow: { dailyLimit: 100000, todaySpent: 0, startDate: '', endDate: '' },
+              logs: [],
+              config: { minWithdrawal: 100 }
+            }}
+            setAppState={() => {}}
             showToast={showToast}
             userCampaigns={userCampaigns}
             userBroadcasts={userBroadcasts}
             userSubmissions={userSubmissions}
             userPayouts={userPayouts}
           />
-        )}
+        ) : null;
 
-        {currentView === 'admin' && currentUser?.role === UserRole.ADMIN && (
+      case 'admin':
+        return currentUser?.role === UserRole.ADMIN ? (
           <AdminPanel
             currentUser={currentUser}
             showToast={showToast}
-            appState={appState}
-            setAppState={setAppState}
+            appState={null}
+            setAppState={() => {}}
           />
-        )}
+        ) : null;
+
+      default:
+        return null;
+    }
+  };
+
+  // ==================== RENDER BOTTOM NAVIGATION ====================
+  const renderBottomNavigation = () => {
+    if (!currentUser || currentUser.role === UserRole.ADMIN || 
+        currentView === 'auth' || currentView === 'recovery' || currentView === 'admin') {
+      return null;
+    }
+
+    return (
+      <div className="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-xl border-t border-white/10 z-50">
+        <div className="max-w-lg mx-auto px-6 py-3">
+          <div className="grid grid-cols-4 gap-2">
+            <button
+              onClick={() => setCurrentView('campaigns')}
+              className={`flex flex-col items-center p-3 rounded-xl transition-all ${
+                currentView === 'campaigns'
+                  ? 'bg-cyan-500 text-black'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <ICONS.Campaign className="w-5 h-5 mb-1" />
+              <span className="text-[10px] font-bold uppercase">Missions</span>
+            </button>
+
+            <button
+              onClick={() => setCurrentView('verify')}
+              className={`flex flex-col items-center p-3 rounded-xl transition-all ${
+                currentView === 'verify'
+                  ? 'bg-cyan-500 text-black'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <ICONS.Check className="w-5 h-5 mb-1" />
+              <span className="text-[10px] font-bold uppercase">Verify</span>
+            </button>
+
+            <button
+              onClick={() => setCurrentView('wallet')}
+              className={`flex flex-col items-center p-3 rounded-xl transition-all ${
+                currentView === 'wallet'
+                  ? 'bg-cyan-500 text-black'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <ICONS.Wallet className="w-5 h-5 mb-1" />
+              <span className="text-[10px] font-bold uppercase">Wallet</span>
+              {currentUser.pendingBalance > 0 && (
+                <span className="absolute top-1 right-4 w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
+              )}
+            </button>
+
+            <button
+              onClick={handleProfileClick}
+              className="flex flex-col items-center p-3 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+            >
+              <ICONS.User className="w-5 h-5 mb-1" />
+              <span className="text-[10px] font-bold uppercase">Profile</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white">
+      {renderToast()}
+      
+      {/* Header */}
+      {renderHeader()}
+
+      {/* Main Content */}
+      <main className="max-w-lg mx-auto px-4 pb-32 pt-4">
+        {renderMainContent()}
       </main>
 
       {/* Overlays & Modals */}
@@ -603,61 +668,8 @@ function App() {
         />
       )}
 
-      {/* Bottom Navigation for Users */}
-      {currentUser && currentUser.role !== UserRole.ADMIN && currentView !== 'admin' && (
-        <div className="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-xl border-t border-white/10 z-50">
-          <div className="max-w-lg mx-auto px-6 py-3">
-            <div className="grid grid-cols-4 gap-2">
-              <button
-                onClick={() => setCurrentView('campaigns')}
-                className={`flex flex-col items-center p-3 rounded-xl transition-all ${
-                  currentView === 'campaigns'
-                    ? 'bg-cyan-500 text-black'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <ICONS.Campaign className="w-5 h-5 mb-1" />
-                <span className="text-[10px] font-bold uppercase">Missions</span>
-              </button>
-
-              <button
-                onClick={() => setCurrentView('verify')}
-                className={`flex flex-col items-center p-3 rounded-xl transition-all ${
-                  currentView === 'verify'
-                    ? 'bg-cyan-500 text-black'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <ICONS.Check className="w-5 h-5 mb-1" />
-                <span className="text-[10px] font-bold uppercase">Verify</span>
-              </button>
-
-              <button
-                onClick={() => setCurrentView('wallet')}
-                className={`flex flex-col items-center p-3 rounded-xl transition-all ${
-                  currentView === 'wallet'
-                    ? 'bg-cyan-500 text-black'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <ICONS.Wallet className="w-5 h-5 mb-1" />
-                <span className="text-[10px] font-bold uppercase">Wallet</span>
-                {currentUser.pendingBalance > 0 && (
-                  <span className="absolute top-1 right-4 w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
-                )}
-              </button>
-
-              <button
-                onClick={handleProfileClick}
-                className="flex flex-col items-center p-3 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
-              >
-                <ICONS.User className="w-5 h-5 mb-1" />
-                <span className="text-[10px] font-bold uppercase">Profile</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Bottom Navigation */}
+      {renderBottomNavigation()}
     </div>
   );
 }
