@@ -94,84 +94,121 @@ function App() {
     },
     []
   );
+// ==================== CHECK FIREBASE CONNECTION ====================
+useEffect(() => {
+  checkFirebaseConnection().then(isConnected => {
+    console.log('Firebase connection status:', isConnected);
+    if (!isConnected) {
+      showToast('⚠️ Connection issue detected. Some features may not work.', 'error');
+    }
+  }).catch(() => {
+    // Silent fail
+  });
+}, [showToast]);
 
-  // ==================== CHECK FIREBASE CONNECTION ====================
-  useEffect(() => {
-    checkFirebaseConnection().then(isConnected => {
-      if (!isConnected) {
-        showToast('Connection issue. Some features may not work.', 'error');
-      }
-    });
-  }, [showToast]);
+// ==================== AUTH LISTENER ====================
+useEffect(() => {
+  const unsub = onAuthStateChanged(auth, async firebaseUser => {
+    clearAllListeners();
 
-  // ==================== AUTH LISTENER ====================
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async firebaseUser => {
-      clearAllListeners();
+    if (!firebaseUser) {
+      setCurrentUser(null);
+      setCurrentView('auth');
+      setLoading(false);
+      return;
+    }
 
-      if (!firebaseUser) {
-        setCurrentUser(null);
-        setCurrentView('auth');
+    try {
+      const userDocRef = doc(db, 'users', firebaseUser.uid);
+      const snap = await getDoc(userDocRef);
+      
+      if (!snap.exists()) {
+        console.log('User document not found, allowing access...');
+        
+        // Create temporary user object
+        const tempUser: User = {
+          id: firebaseUser.uid,
+          username: firebaseUser.email?.split('@')[0] || 'user',
+          email: firebaseUser.email || '',
+          role: UserRole.USER,
+          status: UserStatus.ACTIVE,
+          walletBalance: 0,
+          pendingBalance: 0,
+          totalEarnings: 0,
+          joinedAt: Date.now(),
+          lastLoginAt: Date.now(),
+          readBroadcastIds: [],
+          securityKey: '',
+          savedSocialUsername: '',
+          payoutMethod: '',
+          payoutDetails: ''
+        };
+        
+        setCurrentUser(tempUser);
+        setCurrentView('campaigns');
+        showToast('Welcome! Please complete your profile.', 'success');
         setLoading(false);
         return;
       }
 
+      const userData = snap.data() as User;
+      
+      // Check if user is suspended or banned
+      if (userData.status === UserStatus.SUSPENDED || userData.status === UserStatus.BANNED) {
+        showToast('Account suspended. Contact admin.', 'error');
+        await signOut(auth);
+        return;
+      }
+
+      // Update last login
       try {
-        const userDocRef = doc(db, 'users', firebaseUser.uid);
-        const snap = await getDoc(userDocRef);
-        
-        if (!snap.exists()) {
-          showToast('User account not found', 'error');
-          await signOut(auth);
-          return;
-        }
-
-        const userData = snap.data() as User;
-        
-        // Check if user is suspended or banned
-        if (userData.status === UserStatus.SUSPENDED || userData.status === UserStatus.BANNED) {
-          showToast('Account suspended. Contact admin.', 'error');
-          await signOut(auth);
-          return;
-        }
-
-        // Update last login
         await updateDoc(userDocRef, {
           lastLoginAt: Date.now(),
           updatedAt: serverTimestamp()
         });
-
-        const safeUser: User = {
-          ...userData,
-          id: firebaseUser.uid,
-          lastLoginAt: Date.now(),
-          updatedAt: Date.now()
-        };
-
-        setCurrentUser(safeUser);
-        
-        // Set view based on role
-        if (safeUser.role === UserRole.ADMIN) {
-          setCurrentView('admin');
-        } else {
-          setCurrentView('campaigns');
-        }
-
-        showToast('Login successful!', 'success');
-      } catch (err: any) {
-        console.error('Auth error:', err);
-        showToast('Login failed. Please try again.', 'error');
-        await signOut(auth);
-      } finally {
-        setLoading(false);
+      } catch (updateError) {
+        console.log('Could not update last login:', updateError);
       }
-    });
 
-    return () => {
-      unsub();
-      clearAllListeners();
-    };
-  }, [showToast]);
+      const safeUser: User = {
+        ...userData,
+        id: firebaseUser.uid,
+        lastLoginAt: Date.now(),
+        updatedAt: Date.now()
+      };
+
+      setCurrentUser(safeUser);
+      
+      // Set view based on role
+      if (safeUser.role === UserRole.ADMIN) {
+        setCurrentView('admin');
+      } else {
+        setCurrentView('campaigns');
+      }
+
+      showToast('Login successful!', 'success');
+      
+    } catch (err: any) {
+      console.error('Auth error details:', {
+        code: err.code,
+        message: err.message
+      });
+      
+      if (err.code === 'permission-denied') {
+        showToast('Access denied. Please contact admin.', 'error');
+      } else {
+        showToast('Login failed. Please try again.', 'error');
+      }
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  return () => {
+    unsub();
+    clearAllListeners();
+  };
+}, [showToast]);
 
   // ==================== USER CAMPAIGNS LISTENER ====================
   useEffect(() => {
