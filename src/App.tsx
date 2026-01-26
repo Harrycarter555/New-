@@ -22,7 +22,8 @@ import {
   UserStatus,
   Platform,
   SubmissionStatus,
-  PayoutStatus
+  PayoutStatus,
+  ViewType
 } from './types';
 
 import { auth, db } from './firebase';
@@ -50,14 +51,6 @@ import {
 const genAI = new GoogleGenerativeAI(
   import.meta.env.VITE_GEMINI_API_KEY || ''
 );
-
-type ViewType =
-  | 'auth'
-  | 'campaigns'
-  | 'verify'
-  | 'wallet'
-  | 'admin'
-  | 'recovery';
 
 function App() {
   // ==================== GLOBAL STATE ====================
@@ -133,7 +126,7 @@ function App() {
           return;
         }
 
-        const userData = snap.data();
+        const userData = snap.data() as User;
         
         // Check if user is suspended or banned
         if (userData.status === UserStatus.SUSPENDED || userData.status === UserStatus.BANNED) {
@@ -149,23 +142,10 @@ function App() {
         });
 
         const safeUser: User = {
+          ...userData,
           id: firebaseUser.uid,
-          username: userData.username || '',
-          email: userData.email || '',
-          role: userData.role || UserRole.USER,
-          status: userData.status || UserStatus.ACTIVE,
-          walletBalance: Number(userData.walletBalance) || 0,
-          pendingBalance: Number(userData.pendingBalance) || 0,
-          totalEarnings: Number(userData.totalEarnings) || 0,
-          joinedAt: userData.joinedAt || Date.now(),
-          lastLoginAt: userData.lastLoginAt || Date.now(),
-          readBroadcastIds: userData.readBroadcastIds || [],
-          securityKey: userData.securityKey || '',
-          savedSocialUsername: userData.savedSocialUsername || '',
-          payoutMethod: userData.payoutMethod || 'UPI',
-          payoutDetails: userData.payoutDetails || '',
-          createdAt: userData.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: userData.updatedAt?.toDate?.().getTime() || Date.now()
+          lastLoginAt: Date.now(),
+          updatedAt: Date.now()
         };
 
         setCurrentUser(safeUser);
@@ -206,24 +186,11 @@ function App() {
     const unsub = onSnapshot(q, (snapshot) => {
       const campaigns: Campaign[] = [];
       snapshot.forEach((doc) => {
-        const data = doc.data();
+        const data = doc.data() as Campaign;
         campaigns.push({
+          ...data,
           id: doc.id,
-          title: data.title || '',
-          description: data.description || '',
-          videoUrl: data.videoUrl || '',
-          thumbnailUrl: data.thumbnailUrl || '',
-          caption: data.caption || '',
-          hashtags: data.hashtags || '',
-          audioName: data.audioName || '',
-          goalViews: data.goalViews || 0,
-          goalLikes: data.goalLikes || 0,
-          basicPay: data.basicPay || 0,
-          viralPay: data.viralPay || 0,
-          active: data.active || false,
-          bioLink: data.bioLink || '',
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now(),
-          updatedAt: data.updatedAt?.toDate?.().getTime() || Date.now()
+          updatedAt: data.updatedAt || Date.now()
         });
       });
       setUserCampaigns(campaigns);
@@ -257,7 +224,7 @@ function App() {
           targetUserId: data.targetUserId,
           timestamp: data.timestamp || Date.now(),
           readBy: data.readBy || [],
-          createdAt: data.createdAt?.toDate?.().getTime() || Date.now()
+          createdAt: data.createdAt || Date.now()
         };
       });
       setUserBroadcasts(broadcasts);
