@@ -1,7 +1,16 @@
-// firebase.ts
+// FIXED FIREBASE CONFIGURATION
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, CACHE_SIZE_UNLIMITED } from 'firebase/firestore';
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  CACHE_SIZE_UNLIMITED,
+  collection,
+  getDocs,
+  query,
+  limit,
+  serverTimestamp
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyD0GSKrevCHLP2Fs9LMoq8hwImCWzoFxDQ",
@@ -24,6 +33,9 @@ export const db = initializeFirestore(app, {
     cacheSizeBytes: CACHE_SIZE_UNLIMITED
   })
 });
+
+// ✅ Export serverTimestamp
+export { serverTimestamp };
 
 // ✅ Connection status
 let isOnline = navigator.onLine;
