@@ -1,6 +1,4 @@
-// UPDATED & FIXED VERSION (January 19, 2026)
-
-import React from 'react';
+// UPDATED & FIXED VERSION (January 27, 2026)
 
 // ========== ENUMS ==========
 export enum UserRole { 
@@ -54,13 +52,11 @@ export interface User {
   payoutMethod?: 'UPI' | 'BANK' | 'USDT' | string;
   payoutDetails?: string;
   createdAt?: number;
-  // ✅ ADDED: For constants.tsx compatibility
+  updatedAt?: number;
   description?: string;
   reward?: number;
   duration?: number;
   tags?: string[];
-  // ✅ ADDED: For AdminMembers compatibility
-  email?: string;
   totalBalance?: number;
 }
 
@@ -79,14 +75,14 @@ export interface Campaign {
   active: boolean;
   bioLink: string;
   createdAt?: number;
+  updatedAt?: number;
   description?: string;
   requirements?: string[];
-  // ✅ ADDED: For constants.tsx compatibility
   reward?: number;
   duration?: number;
   tags?: string[];
-  status?: string; // For reports status
-  createdBy?: string; // For broadcasts
+  status?: string;
+  createdBy?: string;
 }
 
 export interface Submission {
@@ -132,7 +128,6 @@ export interface Broadcast {
   message?: string;
   createdAt?: number;
   createdBy?: string;
-  // ✅ ADDED: For constants.tsx compatibility
   status?: string;
 }
 
@@ -167,7 +162,7 @@ export interface AppConfig {
   minWithdrawal: number;
 }
 
-// ✅ UPDATED AppState to match constants.tsx
+// ✅ UPDATED AppState
 export interface AppState {
   users: User[];
   campaigns: Campaign[];
@@ -179,6 +174,9 @@ export interface AppState {
   logs: AppLog[];
   config: AppConfig;
 }
+
+// ========== VIEW TYPE ==========
+export type ViewType = 'auth' | 'dashboard' | 'campaigns' | 'verify' | 'wallet' | 'admin' | 'recovery';
 
 // ========== ADMIN PANEL TYPES ==========
 export type AdminTab = 
@@ -192,21 +190,18 @@ export type AdminTab =
 
 export type PayoutSubTab = 'payouts' | 'verifications';
 
-// View union type (for setCurrentView)
-export type AppView = "admin" | "auth" | "verify" | "campaigns" | "recovery" | "wallet";
-
 // Props Types
 export interface AdminPanelProps {
   currentUser: User;
   showToast: (message: string, type?: 'success' | 'error') => void;
-  appState?: AppState; // ✅ MADE OPTIONAL to fix App.tsx error
-  setAppState?: React.Dispatch<React.SetStateAction<AppState>>; // ✅ MADE OPTIONAL
+  appState?: AppState;
+  setAppState?: React.Dispatch<React.SetStateAction<AppState>>;
 }
 
 export interface AdminDashboardProps {
   showToast: (message: string, type: 'success' | 'error') => void;
-  data?: any; // ✅ ADDED for AdminPanel compatibility
-  onRefresh?: () => void; // ✅ ADDED for AdminPanel compatibility
+  data?: any;
+  onRefresh?: () => void;
 }
 
 export interface AdminMembersProps {
@@ -245,15 +240,15 @@ export interface AdminBroadcastsProps {
   users?: User[];
 }
 
-// Auth & Recovery Props (type-safe setCurrentView)
+// Auth & Recovery Props
 export interface AccountRecoveryProps {
-  setCurrentView: (view: AppView) => void;
+  setCurrentView: (view: ViewType) => void;
   showToast: (message: string, type: 'success' | 'error') => void;
 }
 
 export interface AuthViewProps {
   setCurrentUser: (user: User | null) => void;
-  setCurrentView: (view: AppView) => void;
+  setCurrentView: (view: ViewType) => void;
   showToast: (message: string, type: 'success' | 'error') => void;
 }
 
@@ -276,7 +271,7 @@ export interface DashboardStats {
   todaySpent: number;
 }
 
-// ✅ ADDITIONAL TYPES FOR COMPONENTS
+// ✅ ADDITIONAL TYPES
 export interface CampaignsPageProps {
   userCampaigns: Campaign[];
   userStats: {
@@ -295,7 +290,7 @@ export interface VerifyViewProps {
   appState: AppState;
   setAppState: React.Dispatch<React.SetStateAction<AppState>>;
   showToast: (msg: string, type?: 'success' | 'error') => void;
-  genAI: any; // GoogleGenerativeAI type
+  genAI: any;
   userCampaigns: Campaign[];
 }
 
@@ -329,6 +324,7 @@ export interface HeaderProps {
   onNotifyClick: () => void;
   onProfileClick: () => void;
   unreadCount: number;
+  onReportClick: () => void;
 }
 
 // ✅ ADDED MISSING TYPES
@@ -348,7 +344,7 @@ export interface ActivityLog {
   user?: string;
 }
 
-// ✅ ADDED FOR FIREBASE SERVICE COMPATIBILITY
+// Firebase Service
 export interface FirebaseService {
   checkFirebaseConnection: () => Promise<boolean>;
   adminService: {
@@ -378,14 +374,12 @@ export interface FirebaseService {
   };
 }
 
-// ✅ ADDED FOR UTILS COMPATIBILITY
 export interface FormatOptions {
   currency?: boolean;
   date?: boolean;
   compact?: boolean;
 }
 
-// ✅ EXPORT ALL TYPES
 export type {
   User as IUser,
   Campaign as ICampaign,
