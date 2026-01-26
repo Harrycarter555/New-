@@ -343,7 +343,7 @@ const fetchBroadcasts = async (): Promise<Broadcast[]> => {
 };
 
 // ========== ADMIN SERVICE ==========
-export const adminService = {
+const adminService = {
   // Get all admin dashboard data
   getAdminDashboardData: async () => {
     try {
@@ -1071,7 +1071,7 @@ export const adminService = {
 };
 
 // ========== CASHFLOW SERVICE ==========
-export const cashflowService = {
+const cashflowService = {
   getCashflowData: async () => {
     try {
       const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
@@ -1165,7 +1165,7 @@ export const cashflowService = {
 };
 
 // ========== BROADCAST SERVICE ==========
-export const broadcastService = {
+const broadcastService = {
   sendBroadcast: async (
     content: string,
     senderId: string,
@@ -1319,7 +1319,7 @@ export const broadcastService = {
 };
 
 // ========== STATS SERVICE ==========
-export const statsService = {
+const statsService = {
   getDashboardStats: async () => {
     try {
       const [users, campaigns, payouts, submissions, reports, cashflowData] = await Promise.all([
@@ -1405,7 +1405,7 @@ export const statsService = {
 };
 
 // ========== CAMPAIGN SERVICE ==========
-export const campaignService = {
+const campaignService = {
   getAllCampaigns: async () => {
     return fetchCampaigns();
   },
@@ -1439,7 +1439,7 @@ export const campaignService = {
 };
 
 // ========== USER SERVICE ==========
-export const userService = {
+const userService = {
   getAllUsers: async () => {
     return fetchUsers();
   },
@@ -1488,11 +1488,14 @@ export const userService = {
       console.error('Error updating user profile:', error);
       throw error;
     }
-  }
+  },
+
+  // WalletView.tsx mein use hone wala method
+  requestPayout: adminService.requestPayout
 };
 
 // ========== PAYOUT SERVICE ==========
-export const payoutService = {
+const payoutService = {
   getAllPayouts: async () => {
     return fetchPayouts();
   },
@@ -1527,7 +1530,7 @@ export const payoutService = {
 };
 
 // ========== SUBMISSION SERVICE ==========
-export const submissionService = {
+const submissionService = {
   getAllSubmissions: async () => {
     return fetchSubmissions();
   },
@@ -1565,7 +1568,7 @@ export const submissionService = {
 };
 
 // ========== REPORT SERVICE ==========
-export const reportService = {
+const reportService = {
   getAllReports: async () => {
     return fetchReports();
   },
