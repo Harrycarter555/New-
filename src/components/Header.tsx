@@ -1,4 +1,4 @@
-// src/components/Header.tsx
+// FIXED HEADER COMPONENT
 import React from 'react';
 import { User } from '../types';
 import { ICONS } from '../constants';
@@ -9,6 +9,7 @@ interface HeaderProps {
   onNotifyClick: () => void;
   onProfileClick: () => void;
   unreadCount: number;
+  onReportClick: () => void; // ✅ Ye line add ki hai
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -17,6 +18,7 @@ const Header: React.FC<HeaderProps> = ({
   onNotifyClick,
   onProfileClick,
   unreadCount,
+  onReportClick
 }) => {
   if (!user) return null;
 
