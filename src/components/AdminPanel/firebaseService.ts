@@ -1,10 +1,17 @@
+// Import Firestore functions from 'firebase/firestore'
 import { 
   collection, getDocs, updateDoc, doc, query, orderBy, 
   addDoc, deleteDoc, onSnapshot, serverTimestamp, where,
   getDoc, setDoc, increment, arrayUnion, arrayRemove,
-  writeBatch, limit, getCountFromServer, Timestamp,
-  getApp, getAuth
+  writeBatch, limit, getCountFromServer, Timestamp
 } from 'firebase/firestore';
+
+// Import Auth functions from 'firebase/auth'
+import { getAuth } from 'firebase/auth';
+
+// Import App functions from 'firebase/app'
+import { getApp } from 'firebase/app';
+
 import { db } from '../../firebase';
 import { 
   User, UserRole, UserStatus, Campaign, Submission, 
@@ -1397,12 +1404,210 @@ export const statsService = {
   }
 };
 
-// Export everything
-export default {
+// ========== CAMPAIGN SERVICE ==========
+export const campaignService = {
+  getAllCampaigns: async () => {
+    return fetchCampaigns();
+  },
+  
+  getActiveCampaigns: async () => {
+    const campaigns = await fetchCampaigns();
+    return campaigns.filter(c => c.active);
+  },
+  
+  getCampaignById: async (campaignId: string) => {
+    try {
+      const campaignDoc = await getDoc(doc(db, 'campaigns', campaignId));
+      if (campaignDoc.exists()) {
+        const data = campaignDoc.data();
+        return {
+          id: campaignDoc.id,
+          ...data
+        } as Campaign;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting campaign by ID:', error);
+      return null;
+    }
+  },
+  
+  createCampaign: adminService.createCampaign,
+  updateCampaign: adminService.updateCampaign,
+  deleteCampaign: adminService.deleteCampaign,
+  toggleCampaignStatus: adminService.toggleCampaignStatus
+};
+
+// ========== USER SERVICE ==========
+export const userService = {
+  getAllUsers: async () => {
+    return fetchUsers();
+  },
+  
+  getUserById: async (userId: string) => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        return {
+          id: userDoc.id,
+          ...data
+        } as User;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting user by ID:', error);
+      return null;
+    }
+  },
+  
+  updateUserStatus: adminService.updateUserStatus,
+  
+  updateUserWallet: async (userId: string, amount: number, type: 'add' | 'deduct') => {
+    try {
+      const incrementValue = type === 'add' ? amount : -amount;
+      await updateDoc(doc(db, 'users', userId), {
+        walletBalance: increment(incrementValue),
+        updatedAt: serverTimestamp()
+      });
+      return true;
+    } catch (error) {
+      console.error('Error updating user wallet:', error);
+      throw error;
+    }
+  },
+  
+  updateUserProfile: async (userId: string, updates: Partial<User>) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        ...updates,
+        updatedAt: serverTimestamp()
+      });
+      return true;
+    } catch (error) {
+      console.error('Error updating user profile:', error);
+      throw error;
+    }
+  }
+};
+
+// ========== PAYOUT SERVICE ==========
+export const payoutService = {
+  getAllPayouts: async () => {
+    return fetchPayouts();
+  },
+  
+  getPayoutById: async (payoutId: string) => {
+    try {
+      const payoutDoc = await getDoc(doc(db, 'payouts', payoutId));
+      if (payoutDoc.exists()) {
+        const data = payoutDoc.data();
+        return {
+          id: payoutDoc.id,
+          ...data
+        } as PayoutRequest;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting payout by ID:', error);
+      return null;
+    }
+  },
+  
+  getPayoutsByUserId: async (userId: string) => {
+    const payouts = await fetchPayouts();
+    return payouts.filter(p => p.userId === userId);
+  },
+  
+  approvePayout: adminService.approvePayout,
+  rejectPayout: adminService.rejectPayout,
+  holdPayout: adminService.holdPayout,
+  releasePayoutHold: adminService.releasePayoutHold,
+  requestPayout: adminService.requestPayout
+};
+
+// ========== SUBMISSION SERVICE ==========
+export const submissionService = {
+  getAllSubmissions: async () => {
+    return fetchSubmissions();
+  },
+  
+  getSubmissionById: async (submissionId: string) => {
+    try {
+      const submissionDoc = await getDoc(doc(db, 'submissions', submissionId));
+      if (submissionDoc.exists()) {
+        const data = submissionDoc.data();
+        return {
+          id: submissionDoc.id,
+          ...data
+        } as Submission;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting submission by ID:', error);
+      return null;
+    }
+  },
+  
+  getSubmissionsByUserId: async (userId: string) => {
+    const submissions = await fetchSubmissions();
+    return submissions.filter(s => s.userId === userId);
+  },
+  
+  getSubmissionsByCampaignId: async (campaignId: string) => {
+    const submissions = await fetchSubmissions();
+    return submissions.filter(s => s.campaignId === campaignId);
+  },
+  
+  approveSubmission: adminService.approveSubmission,
+  rejectSubmission: adminService.rejectSubmission,
+  createSubmission: adminService.createSubmission
+};
+
+// ========== REPORT SERVICE ==========
+export const reportService = {
+  getAllReports: async () => {
+    return fetchReports();
+  },
+  
+  getReportById: async (reportId: string) => {
+    try {
+      const reportDoc = await getDoc(doc(db, 'reports', reportId));
+      if (reportDoc.exists()) {
+        const data = reportDoc.data();
+        return {
+          id: reportDoc.id,
+          ...data
+        } as UserReport;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting report by ID:', error);
+      return null;
+    }
+  },
+  
+  getReportsByUserId: async (userId: string) => {
+    const reports = await fetchReports();
+    return reports.filter(r => r.userId === userId);
+  },
+  
+  resolveReport: adminService.resolveReport,
+  deleteReport: adminService.deleteReport,
+  submitReport: adminService.submitReport
+};
+
+// ========== EXPORT ALL SERVICES ==========
+export {
   checkFirebaseConnection,
   initializationService,
   adminService,
   cashflowService,
   broadcastService,
-  statsService
+  statsService,
+  campaignService,
+  userService,
+  payoutService,
+  submissionService,
+  reportService
 };
