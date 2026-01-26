@@ -5,13 +5,13 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import { User, UserRole, UserStatus } from '../types';
+import { User, UserRole, UserStatus, ViewType } from '../types';
 import { validatePasswordStrength, getPasswordStrengthColor } from '../utils/passwordValidator';
 import { generateSecurityKey } from '../utils/SecurityKeyUtils';
 
 interface AuthViewProps {
   setCurrentUser: (user: User | null) => void;
-  setCurrentView: (view: string) => void;
+  setCurrentView: (view: ViewType) => void;
   showToast: (message: string, type: 'success' | 'error') => void;
 }
 
@@ -704,7 +704,7 @@ const AuthView: React.FC<AuthViewProps> = ({ setCurrentUser, setCurrentView, sho
               </div>
             )}
 
-            {/* Submit Button - FIXED: No freeze issue */}
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
