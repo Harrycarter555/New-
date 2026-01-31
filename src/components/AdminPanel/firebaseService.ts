@@ -83,7 +83,7 @@ export const initializationService = {
         endDate.setFullYear(today.getFullYear() + 1);
         
         batch.set(cashflowRef, {
-          dailyLimit:'',
+          dailyLimit:100000,
           todaySpent: 0,
           startDate: today.toISOString().split('T')[0],
           endDate: endDate.toISOString().split('T')[0],
@@ -101,7 +101,7 @@ export const initializationService = {
       if (!configSnap.exists()) {
         batch.set(configRef, {
           minWithdrawal: 100,
-          dailyLimit:'',
+          dailyLimit:100000,
           appName: 'ReelEarn Pro',
           version: '1.0.0',
           createdBy: user.uid,
@@ -1069,7 +1069,7 @@ const cashflowService = {
         endDate.setFullYear(today.getFullYear() + 1);
         
         const defaultCashflow = {
-          dailyLimit:'',
+          dailyLimit:100000,
           todaySpent: 0,
           startDate: today.toISOString().split('T')[0],
           endDate: endDate.toISOString().split('T')[0],
@@ -1083,7 +1083,7 @@ const cashflowService = {
     } catch (error) {
       console.error('Error loading cashflow:', error);
       return {
-        dailyLimit: '',
+        dailyLimit: 100000,
         todaySpent: 0,
         startDate: '',
         endDate: ''
