@@ -4,7 +4,17 @@ import { AppState, User, Platform, SubmissionStatus, Campaign } from '../types';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { collection, addDoc, updateDoc, doc, increment, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ICONS } from '../constants';
+// Remove ICONS import - we'll use fallback icons
+// import { ICONS } from '../constants';
+
+// ✅ Define fallback icons directly in this file
+const FALLBACK_ICONS = {
+  Check: () => <span className="text-black">✓</span>,
+  Instagram: () => <span>📷</span>,
+  Facebook: () => <span>📘</span>,
+  Info: () => <span>ℹ️</span>,
+  Verify: () => <span>✅</span>,
+};
 
 interface VerifyViewProps {
   currentUser: User;
@@ -32,12 +42,6 @@ const VerifyView: React.FC<VerifyViewProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState('');
 
-  // DEBUG MODE - Set to true to see AI responses
-  const DEBUG_MODE = true;
-  
-  // TEMPORARY: Set to true to bypass AI for testing
-  const TEMP_BYPASS_AI = true; // ✅ TEMPORARILY TRUE for testing
-
   // Use userCampaigns instead of appState.campaigns
   const activeCampaigns = userCampaigns.filter(c => c.active);
 
@@ -47,7 +51,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     );
   };
 
-  // Helper functions for URL cleaning
+  // Helper function for URL cleaning
   const cleanUsername = (username: string) => {
     return username.replace('@', '').trim().toLowerCase();
   };
@@ -63,22 +67,9 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     }
 
     setIsAnalyzing(true);
-    setAnalysisStep("AI INITIALIZING...");
+    setAnalysisStep("PROCESSING SUBMISSION...");
 
     try {
-      // ✅ IMPORTANT: Use correct model name based on your API
-      let model;
-      
-      // Try different model names - Google frequently changes these
-      const modelNames = [
-        "gemini-1.5-flash",  // Original
-        "gemini-1.5-flash-latest", // Latest version
-        "gemini-1.5-pro",    // Pro version
-        "gemini-pro",        // Older pro
-        "models/gemini-1.5-flash", // Full path
-        "gemini-1.0-pro"     // Fallback
-      ];
-      
       const cleanHandle = cleanUsername(handleInput);
       const successfulSubmissions = [];
 
@@ -86,108 +77,42 @@ const VerifyView: React.FC<VerifyViewProps> = ({
         const campaign = activeCampaigns.find(c => c.id === cid);
         if (!campaign) continue;
 
-        setAnalysisStep(`VERIFYING: ${campaign.title.toUpperCase()}...`);
+        setAnalysisStep(`PROCESSING: ${campaign.title.toUpperCase()}...`);
 
-        // ✅ TEMPORARY: Skip AI verification completely for now
-        if (TEMP_BYPASS_AI) {
-          console.log("TEMPORARY: Bypassing AI verification for", campaign.title);
-          
-          // Direct success without AI
-          const submissionRef = await addDoc(collection(db, 'submissions'), {
-            userId: currentUser.id,
-            username: currentUser.username,
-            socialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
-            campaignId: cid,
-            campaignTitle: campaign.title,
-            platform,
-            status: SubmissionStatus.PENDING,
-            timestamp: Date.now(),
-            rewardAmount: campaign.basicPay,
-            externalLink: links[cid],
-            isViralBonus: false,
-            aiVerificationResponse: "TEMPORARY_BYPASS",
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          });
+        // ✅ Direct submission without AI verification
+        const submissionRef = await addDoc(collection(db, 'submissions'), {
+          userId: currentUser.id,
+          username: currentUser.username,
+          socialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
+          campaignId: cid,
+          campaignTitle: campaign.title,
+          platform,
+          status: SubmissionStatus.PENDING,
+          timestamp: Date.now(),
+          rewardAmount: campaign.basicPay,
+          externalLink: links[cid],
+          isViralBonus: false,
+          aiVerificationResponse: "MANUAL_REVIEW_REQUIRED",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
 
-          // ✅ Update user's pending balance
-          await updateDoc(doc(db, 'users', currentUser.id), {
-            pendingBalance: increment(campaign.basicPay),
-            savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
-            updatedAt: serverTimestamp()
-          });
+        // ✅ Update user's pending balance
+        await updateDoc(doc(db, 'users', currentUser.id), {
+          pendingBalance: increment(campaign.basicPay),
+          savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
+          updatedAt: serverTimestamp()
+        });
 
-          successfulSubmissions.push({
-            id: submissionRef.id,
-            campaignTitle: campaign.title,
-            amount: campaign.basicPay
-          });
-
-          continue; // Skip to next campaign
-        }
-
-        // Original AI verification code (commented out for now)
-        /*
-        try {
-          // Try to get model - catch if model not found
-          model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        } catch (modelError) {
-          console.warn("Primary model failed, trying fallback...", modelError);
-          // Try fallback model
-          model = genAI.getGenerativeModel({ model: "gemini-pro" });
-        }
-
-        // Create verification prompt
-        const prompt = `
-Verify this social media reel submission:
-
-REEL URL: ${links[cid]}
-EXPECTED USERNAME: @${cleanHandle}
-PLATFORM: ${platform}
-
-REQUIREMENTS:
-- Audio should be: "${campaign.audioName}"
-- Caption should contain: "${campaign.caption}"
-- Video should be vertical (9:16)
-
-If ALL requirements are met, respond with: "SUCCESS"
-If any requirement fails, respond with ONE short error in Hinglish.
-
-Example errors:
-"Audio galat hai"
-"Caption mein keywords nahi hai"
-"Username match nahi ho raha"
-`;
-
-        if (DEBUG_MODE) {
-          console.log("=== AI VERIFICATION ===");
-          console.log("Campaign:", campaign.title);
-          console.log("Model used:", model.model);
-        }
-
-        const result = await model.generateContent(prompt);
-        const response = (await result.response).text().trim();
-        
-        if (DEBUG_MODE) {
-          console.log("AI Response:", response);
-          console.log("=== END ===");
-        }
-
-        // Check for success
-        const isSuccess = response.toUpperCase().includes("SUCCESS");
-
-        if (isSuccess) {
-          // Save to Firestore...
-        } else {
-          showToast(`${campaign.title}: ${response}`, 'error');
-          setIsAnalyzing(false);
-          return;
-        }
-        */
+        successfulSubmissions.push({
+          id: submissionRef.id,
+          campaignTitle: campaign.title,
+          amount: campaign.basicPay
+        });
       }
 
       if (successfulSubmissions.length > 0) {
-        setAnalysisStep("LOGGING PAYOUT DATA...");
+        setAnalysisStep("UPDATING BALANCE...");
         
         // Calculate total payout
         const totalPayout = successfulSubmissions.reduce((acc, s) => acc + s.amount, 0);
@@ -206,7 +131,7 @@ Example errors:
           ),
         }));
 
-        showToast(`✅ ${successfulSubmissions.length} submission(s) verified! ₹${totalPayout} added to pending balance`, 'success');
+        showToast(`✅ ${successfulSubmissions.length} submission(s) queued! ₹${totalPayout} added to pending`, 'success');
         
         // Reset form
         setSelectedVerifyCampaigns([]);
@@ -214,8 +139,8 @@ Example errors:
         setHandleInput(cleanHandle);
       }
     } catch (err: any) {
-      console.error("Verification Error:", err);
-      showToast(`Verification failed: ${err.message}`, 'error');
+      console.error("Submission Error:", err);
+      showToast(`Submission failed: ${err.message}`, 'error');
     } finally {
       setIsAnalyzing(false);
     }
@@ -230,13 +155,8 @@ Example errors:
             {analysisStep}
           </p>
           <p className="text-[10px] text-slate-500 mt-4 uppercase font-black">
-            Processing Submission...
+            Please wait...
           </p>
-          {TEMP_BYPASS_AI && (
-            <p className="text-[10px] text-amber-500 mt-2 font-bold">
-              ⚡ AI Verification Temporarily Disabled
-            </p>
-          )}
         </div>
       )}
 
@@ -245,18 +165,16 @@ Example errors:
           MISSION <span className="text-cyan-400">VERIFY</span>
         </h2>
         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">
-          Audit Submission
+          Submit Your Reels
         </p>
-        {TEMP_BYPASS_AI && (
-          <div className="mt-2 p-2 bg-amber-500/20 border border-amber-500/30 rounded-lg mx-4">
-            <p className="text-[10px] text-amber-400 font-bold">
-              ⚡ TEST MODE: AI Verification Bypassed
-            </p>
-            <p className="text-[8px] text-amber-300 mt-1">
-              Submissions will be accepted without AI check
-            </p>
-          </div>
-        )}
+        <div className="mt-2 p-2 bg-amber-500/20 border border-amber-500/30 rounded-lg mx-4">
+          <p className="text-[10px] text-amber-400 font-bold">
+            ⚡ Manual Review Mode
+          </p>
+          <p className="text-[8px] text-amber-300 mt-1">
+            Submissions will be manually reviewed by admin
+          </p>
+        </div>
       </div>
 
       {/* Campaign Selection */}
@@ -291,11 +209,11 @@ Example errors:
                   </span>
                   <div className="flex items-center gap-1">
                     <span className="text-[8px] text-slate-400 bg-black/50 px-2 py-1 rounded">
-                      {campaign.audioName?.substring(0, 10)}...
+                      {campaign.audioName?.substring(0, 10) || 'Audio'}...
                     </span>
                     {selectedVerifyCampaigns.includes(campaign.id) && (
                       <div className="w-5 h-5 bg-cyan-500 rounded-full flex items-center justify-center">
-                        <ICONS.Check className="w-3 h-3 text-black" />
+                        <FALLBACK_ICONS.Check />
                       </div>
                     )}
                   </div>
@@ -327,7 +245,7 @@ Example errors:
                 platform === Platform.INSTAGRAM ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500'
               }`}
             >
-              <ICONS.Instagram className="w-4 h-4" />
+              <FALLBACK_ICONS.Instagram />
               Instagram
             </button>
             <button
@@ -336,7 +254,7 @@ Example errors:
                 platform === Platform.FACEBOOK ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500'
               }`}
             >
-              <ICONS.Facebook className="w-4 h-4" />
+              <FALLBACK_ICONS.Facebook />
               Facebook
             </button>
           </div>
@@ -357,7 +275,7 @@ Example errors:
         {selectedVerifyCampaigns.length > 0 && (
           <div className="space-y-4 animate-slide">
             <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-2 italic">
-              3. URL Link Verification
+              3. Paste Reel URLs
             </p>
             {selectedVerifyCampaigns.map(cid => {
               const campaign = activeCampaigns.find(c => c.id === cid);
@@ -377,7 +295,7 @@ Example errors:
                       <div className="flex justify-between items-center mt-1">
                         <p className="text-[10px] text-cyan-400">₹{campaign?.basicPay}</p>
                         <p className="text-[8px] text-slate-500 bg-black/30 px-2 py-1 rounded">
-                          {campaign?.audioName?.substring(0, 15)}...
+                          {campaign?.audioName?.substring(0, 15) || 'Required Audio'}...
                         </p>
                       </div>
                     </div>
@@ -389,8 +307,8 @@ Example errors:
                     onChange={e => setLinks({ ...links, [cid]: e.target.value })}
                   />
                   <div className="flex items-center gap-2 text-[9px] text-slate-500">
-                    <ICONS.Info className="w-3 h-3" />
-                    <span>Make sure URL contains: <span className="text-cyan-400">@{handleInput || 'yourusername'}</span></span>
+                    <FALLBACK_ICONS.Info />
+                    <span>URL must contain: <span className="text-cyan-400">@{handleInput || 'yourusername'}</span></span>
                   </div>
                 </div>
               );
@@ -411,12 +329,12 @@ Example errors:
           {isAnalyzing ? (
             <>
               <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-              VERIFYING...
+              PROCESSING...
             </>
           ) : (
             <>
-              <ICONS.Verify className="w-6 h-6" />
-              {TEMP_BYPASS_AI ? 'SUBMIT FOR APPROVAL' : 'START VERIFICATION'}
+              <FALLBACK_ICONS.Verify />
+              SUBMIT FOR REVIEW
             </>
           )}
         </button>
@@ -444,41 +362,43 @@ Example errors:
               </div>
             </div>
             
-            {TEMP_BYPASS_AI && (
-              <div className="mt-3 p-2 bg-amber-500/20 rounded-lg border border-amber-500/30">
-                <p className="text-[10px] text-amber-400 font-bold text-center">
-                  ⚡ Note: AI verification is temporarily disabled
-                </p>
-                <p className="text-[8px] text-amber-300 text-center mt-1">
-                  Your submission will be manually reviewed
-                </p>
-              </div>
-            )}
+            <div className="mt-3 p-2 bg-amber-500/20 rounded-lg border border-amber-500/30">
+              <p className="text-[10px] text-amber-400 font-bold text-center">
+                ⚡ Manual Review Mode
+              </p>
+              <p className="text-[8px] text-amber-300 text-center mt-1">
+                Admin will review your submission within 24 hours
+              </p>
+            </div>
           </div>
         )}
 
         {/* Instructions */}
         <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
           <p className="text-xs font-black text-white mb-2 flex items-center gap-2">
-            <ICONS.Info className="w-4 h-4 text-cyan-400" />
-            Verification Instructions
+            <FALLBACK_ICONS.Info />
+            Submission Guidelines
           </p>
           <ul className="text-[10px] text-slate-400 space-y-1">
             <li className="flex items-start gap-2">
               <span className="text-cyan-400">✓</span>
-              <span>Use correct audio mentioned in each mission</span>
+              <span>Use exact audio mentioned in mission details</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-cyan-400">✓</span>
-              <span>Include required keywords in your caption</span>
+              <span>Include required keywords in caption</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-cyan-400">✓</span>
-              <span>Reel must be vertical (9:16 format)</span>
+              <span>Reel must be vertical (9:16)</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-cyan-400">✓</span>
-              <span>URL must contain your exact username</span>
+              <span>URL must contain your username</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-amber-400">⚠</span>
+              <span>Payment after admin approval (24-48 hours)</span>
             </li>
           </ul>
         </div>
