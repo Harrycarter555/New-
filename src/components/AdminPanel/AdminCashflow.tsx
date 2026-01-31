@@ -9,7 +9,7 @@ interface AdminCashflowProps {
 
 const AdminCashflow: React.FC<AdminCashflowProps> = ({ showToast }) => {
   const [cashflow, setCashflow] = useState({
-    dailyLimit: 100000,
+    dailyLimit: 0,
     todaySpent: 0,
     startDate: '',
     endDate: ''
