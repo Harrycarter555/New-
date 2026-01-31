@@ -1058,8 +1058,8 @@ const cashflowService = {
       if (cashflowSnap.exists()) {
         const data = cashflowSnap.data();
         return {
-          dailyLimit: data.dailyLimit || 100000,
-          todaySpent: data.todaySpent || 0,
+          dailyLimit: data.dailyLimit ,
+          todaySpent: data.todaySpent ,
           startDate: data.startDate || '',
           endDate: data.endDate || ''
         };
@@ -1069,7 +1069,7 @@ const cashflowService = {
         endDate.setFullYear(today.getFullYear() + 1);
         
         const defaultCashflow = {
-          dailyLimit: 100000,
+          dailyLimit: 0,
           todaySpent: 0,
           startDate: today.toISOString().split('T')[0],
           endDate: endDate.toISOString().split('T')[0],
@@ -1083,7 +1083,7 @@ const cashflowService = {
     } catch (error) {
       console.error('Error loading cashflow:', error);
       return {
-        dailyLimit: 100000,
+        dailyLimit: 0,
         todaySpent: 0,
         startDate: '',
         endDate: ''
@@ -1093,7 +1093,7 @@ const cashflowService = {
 
   updateDailyLimit: async (dailyLimit: number) => {
     try {
-      if (dailyLimit < 1000) throw new Error('Minimum daily limit is ₹1000');
+      if (dailyLimit < 100) throw new Error('Minimum daily limit is ₹100');
       
       await updateDoc(doc(db, 'cashflow', 'daily-cashflow'), {
         dailyLimit,
