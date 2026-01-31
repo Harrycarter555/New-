@@ -26,8 +26,8 @@ const AdminCashflow: React.FC<AdminCashflowProps> = ({ showToast }) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         const updatedCashflow = {
-          dailyLimit: data.dailyLimit || 100000,
-          todaySpent: data.todaySpent || 0,
+          dailyLimit: data.dailyLimit ,
+          todaySpent: data.todaySpent ,
           startDate: data.startDate || new Date().toISOString().split('T')[0],
           endDate: data.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
         };
