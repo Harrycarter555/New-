@@ -94,7 +94,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     }
   };
 
-  // ✅ AI VERIFICATION FUNCTION
+  // ✅ SIMPLE AI VERIFICATION WITHOUT MODEL ERRORS
   const performAIVerification = async (
     url: string, 
     campaign: Campaign, 
@@ -106,86 +106,52 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     requiresReview: boolean;
   }> => {
     try {
-      setAnalysisStep(`🤖 AI analyzing ${campaign.title}...`);
+      console.log('🔍 Checking URL with basic validation...');
       
-      // Try multiple models in order
-      const models = [
-        'gemini-1.5-flash-latest',  // Most reliable
-        'gemini-1.5-pro',
-        'gemini-1.0-pro'
-      ];
+      // Simple checks without calling Gemini API
+      const urlLower = url.toLowerCase();
+      const usernameLower = username.toLowerCase();
       
-      for (const modelName of models) {
-        try {
-          console.log(`Trying AI model: ${modelName}`);
-          
-          const model = genAI.getGenerativeModel({ 
-            model: modelName,
-            generationConfig: {
-              temperature: 0.1,
-              topP: 0.95,
-              maxOutputTokens: 500,
-            }
-          });
-          
-          const prompt = `Check this social media reel:
-URL: ${url}
-Username should be: @${username}
-Campaign: ${campaign.title}
-Required audio: ${campaign.audioName}
-Required keywords: ${campaign.caption}
-
-Check if:
-1. URL is valid
-2. Audio matches
-3. Keywords in caption
-4. Username matches
-5. Video is vertical
-
-Answer only: VALID or INVALID. If INVALID, give one reason.`;
-          
-          const result = await model.generateContent(prompt);
-          const response = await result.response;
-          const text = response.text().trim();
-          
-          console.log(`AI Response (${modelName}):`, text);
-          
-          const isValid = text.toUpperCase().includes('VALID') || 
-                         text.toLowerCase().includes('valid') ||
-                         text.includes('✅') ||
-                         text.includes('✓');
-          
-          return {
-            success: isValid,
-            message: text.substring(0, 100),
-            score: isValid ? 50 : 25,
-            requiresReview: !isValid
-          };
-          
-        } catch (error: any) {
-          console.log(`Model ${modelName} failed:`, error.message);
-          continue;
-        }
+      // Basic validation
+      let isValid = true;
+      let reasons: string[] = [];
+      let score = 40; // Default score for manual review
+      
+      // Check if URL contains username (basic check)
+      if (!urlLower.includes(usernameLower) && !urlLower.includes(`@${usernameLower}`)) {
+        reasons.push('Username not found in URL');
+        score -= 10;
       }
       
-      // If all models fail
-      console.error('All AI models failed');
+      // Check if it's a reel URL
+      if (platform === Platform.INSTAGRAM && !urlLower.includes('/reel/')) {
+        reasons.push('Not an Instagram Reel URL');
+        score -= 10;
+      }
       
-      // ✅ TEMPORARY: ALLOW WITHOUT AI BUT REQUIRE REVIEW
+      if (platform === Platform.FACEBOOK && !urlLower.includes('/reel/') && !urlLower.includes('/video/')) {
+        reasons.push('Not a Facebook Reel/Video URL');
+        score -= 10;
+      }
+      
+      const requiresReview = score < 35 || reasons.length > 0;
+      
       return {
-        success: true,
-        message: 'AI verification temporarily unavailable - Manual review required',
-        score: 40,
-        requiresReview: true
+        success: true, // Always allow, but mark for review if needed
+        message: requiresReview ? 
+          `Manual review required: ${reasons.join(', ')}` : 
+          'URL looks valid',
+        score,
+        requiresReview
       };
       
     } catch (error: any) {
       console.error('AI Verification error:', error);
       
       return {
-        success: true,
-        message: 'AI verification failed - Manual review required',
-        score: 40,
+        success: true, // Always allow, manual review
+        message: 'Manual review required - AI service unavailable',
+        score: 30,
         requiresReview: true
       };
     }
@@ -244,30 +210,13 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
 
         setAnalysisStep(`📤 Processing: ${campaign.title}...`);
 
-        // ✅ AI Verification
-        let aiResult = { success: true, message: 'Submitted', score: 50, requiresReview: false };
-        
-        try {
-          aiResult = await performAIVerification(links[cid], campaign, cleanHandle);
-          console.log(`AI Result for ${campaign.title}:`, aiResult);
-        } catch (aiError) {
-          console.log('AI check skipped:', aiError);
-          // Continue even if AI fails
-        }
+        // ✅ Basic AI Verification
+        const aiResult = await performAIVerification(links[cid], campaign, cleanHandle);
+        console.log(`AI Result for ${campaign.title}:`, aiResult);
 
-        // Determine status based on AI result
-        let status = SubmissionStatus.PENDING;
-        if (aiResult.success && !aiResult.requiresReview) {
-          status = SubmissionStatus.APPROVED;
-        } else if (aiResult.requiresReview) {
-          status = SubmissionStatus.PENDING;
-        } else {
-          status = SubmissionStatus.REJECTED;
-          // If rejected, show message but continue with other campaigns
-          showToast(`${campaign.title}: ${aiResult.message}`, 'warning');
-          // We'll skip this submission if AI rejects
-          continue;
-        }
+        // Determine status - always pending for manual review
+        const status = SubmissionStatus.PENDING;
+        const requiresReview = true; // Always require review for security
 
         // Create submission document
         const submissionRef = doc(collection(db, 'submissions'));
@@ -285,10 +234,10 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
           campaignTitle: campaign.title,
           rewardAmount: campaign.basicPay,
           status: status,
-          aiVerified: true,
+          aiVerified: false, // Manual review always
           aiScore: aiResult.score,
           aiMessage: aiResult.message,
-          requiresManualReview: aiResult.requiresReview,
+          requiresManualReview: requiresReview,
           timestamp: Date.now(),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
@@ -305,20 +254,23 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
         return;
       }
 
-      // ✅ Update user document - ONLY ALLOWED FIELDS
+      // ✅ Update user document - SINGLE UPDATE WITH ALLOWED FIELDS
       const userDocRef = doc(db, 'users', firebaseUser.uid);
+      
+      // Get current user data
       const userDoc = await getDoc(userDocRef);
       
       if (userDoc.exists()) {
         const currentData = userDoc.data();
         const currentPending = currentData.pendingBalance || 0;
         
-        // ✅ RULES ALLOW THESE FIELDS TOGETHER:
+        // ✅ IMPORTANT: Update ALL fields in ONE operation (rules check exact match)
         batch.update(userDocRef, {
           pendingBalance: currentPending + totalPayout,
           savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
           updatedAt: serverTimestamp(),
           lastSubmissionAt: serverTimestamp()
+          // DO NOT add any other fields here
         });
       } else {
         // Create user doc if doesn't exist
@@ -335,6 +287,7 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
       // Commit batch
       setAnalysisStep('💾 Saving to database...');
       await batch.commit();
+      console.log('✅ Batch committed successfully');
 
       // Update local state
       setAppState(prev => ({
@@ -351,20 +304,10 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
       }));
 
       // Success message
-      const approvedCount = submissions.filter(s => !s.requiresManualReview).length;
-      const reviewNeededCount = submissions.length - approvedCount;
-      
-      if (reviewNeededCount > 0) {
-        showToast(
-          `Submitted ${submissions.length} missions. ${approvedCount} approved, ${reviewNeededCount} need manual review. ₹${totalPayout} pending.`,
-          'warning'
-        );
-      } else {
-        showToast(
-          `✅ ${submissions.length} submission(s) received! ₹${totalPayout} added to pending balance.`,
-          'success'
-        );
-      }
+      showToast(
+        `✅ ${submissions.length} submission(s) received! ₹${totalPayout} added to pending balance. Manual review required.`,
+        'success'
+      );
 
       // Reset form
       setSelectedVerifyCampaigns([]);
@@ -375,36 +318,36 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
       console.error('Submission Error Details:', {
         code: error.code,
         message: error.message,
-        name: error.name
+        name: error.name,
+        stack: error.stack
       });
       
       if (error.code === 'permission-denied') {
         showToast(
-          'Firestore permission denied. Please check updated rules.',
+          'Firestore permission denied. Rules need to allow update of: pendingBalance, savedSocialUsername, updatedAt, lastSubmissionAt',
           'error'
         );
         
-        // Show helpful message
-        console.log(`
-        🔥 FIREBASE RULES UPDATE NEEDED:
-        
-        Go to Firebase Console → Firestore → Rules
-        
-        Update the users collection rules to allow:
-        
-        match /users/{userId} {
-          allow update: if 
-            (isSameUser(userId) && 
-             request.resource.data.diff(resource.data).affectedKeys().toSet().hasOnly([
-               'pendingBalance', 'savedSocialUsername', 'updatedAt', 'lastSubmissionAt'
-             ])) ||
-            isAdmin();
-        }
-        `);
+        // Show exact rules to update
+        const rulesUpdate = `
+🔥 UPDATE FIRESTORE RULES:
+
+match /users/{userId} {
+  allow update: if 
+    // User can update specific fields together
+    (isSameUser(userId) && 
+     request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+       'pendingBalance', 'savedSocialUsername', 'updatedAt', 'lastSubmissionAt'
+     ])) ||
+    // Admin can update everything
+    isAdmin();
+}
+        `;
+        console.log(rulesUpdate);
         
       } else if (error.code === 'failed-precondition') {
         showToast(
-          'Please check Firestore indexes or try again.',
+          'Database error. Please try again.',
           'error'
         );
       } else {
@@ -412,6 +355,34 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
       }
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  // ✅ TEST FIREBASE CONNECTION
+  const testFirebaseConnection = async () => {
+    try {
+      const auth = getAuth();
+      const user = auth.currentUser;
+      
+      if (!user) {
+        showToast('Not logged in', 'error');
+        return;
+      }
+
+      showToast('Testing Firebase connection...', 'success');
+      
+      // Test write to _test collection
+      const testRef = await addDoc(collection(db, '_test'), {
+        test: 'connection',
+        timestamp: serverTimestamp(),
+        uid: user.uid
+      });
+      
+      showToast('✅ Firebase connection successful!', 'success');
+      
+    } catch (error: any) {
+      console.error('Firebase test error:', error);
+      showToast(`Firebase error: ${error.message}`, 'error');
     }
   };
 
@@ -435,18 +406,27 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
           VERIFY <span className="text-green-400">SUBMISSIONS</span>
         </h2>
         <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mt-2">
-          AI-Powered Verification
+          Manual Review System
         </p>
+        
+        {/* Test Connection Button */}
+        <button
+          onClick={testFirebaseConnection}
+          className="mt-4 mx-auto px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-black text-xs font-bold rounded-xl flex items-center gap-2 hover:opacity-90"
+        >
+          <Icons.Shield />
+          Test Firebase Connection
+        </button>
       </div>
 
-      {/* Rules Updated Notice */}
+      {/* Important Notice */}
       <div className="mx-4 p-4 bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-green-500/30 rounded-xl">
         <div className="flex items-center gap-2 mb-2">
-          <Icons.Shield />
-          <p className="text-xs font-black text-green-400">RULES UPDATED ✓</p>
+          <Icons.Warning />
+          <p className="text-xs font-black text-green-400">IMPORTANT: Update Firestore Rules</p>
         </div>
         <p className="text-[10px] text-gray-300">
-          Firestore rules now allow pendingBalance + savedSocialUsername updates
+          Update rules to allow: pendingBalance, savedSocialUsername, updatedAt, lastSubmissionAt
         </p>
       </div>
 
@@ -589,12 +569,12 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
           {isAnalyzing ? (
             <>
               <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-              VERIFYING...
+              SUBMITTING...
             </>
           ) : (
             <>
               <Icons.Verify />
-              SUBMIT FOR VERIFICATION
+              SUBMIT FOR MANUAL REVIEW
             </>
           )}
         </button>
@@ -624,7 +604,7 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
             
             <div className="mt-3 p-2 bg-black/30 rounded-lg border border-white/10">
               <p className="text-[10px] text-gray-400 text-center">
-                ✓ AI Verification ✓ Firestore Rules Updated ✓ Batch Processing
+                ⚠️ All submissions require manual review
               </p>
             </div>
           </div>
@@ -634,24 +614,24 @@ Answer only: VALID or INVALID. If INVALID, give one reason.`;
         <div className="p-4 bg-black/30 border border-white/10 rounded-2xl">
           <p className="text-xs font-black text-white mb-2 flex items-center gap-2">
             <Icons.Info />
-            Verification Process
+            How It Works
           </p>
           <div className="text-[10px] text-gray-400 space-y-1">
-            <div className="flex justify-between">
-              <span>1. URL Validation:</span>
+            <div className="flex items-start gap-2">
               <span className="text-green-400">✓</span>
+              <span>Submit your reel links</span>
             </div>
-            <div className="flex justify-between">
-              <span>2. AI Analysis:</span>
-              <span className="text-blue-400">Gemini 1.5</span>
+            <div className="flex items-start gap-2">
+              <span className="text-green-400">✓</span>
+              <span>Basic URL validation</span>
             </div>
-            <div className="flex justify-between">
-              <span>3. Database Update:</span>
-              <span className="text-yellow-400">Batch Write</span>
+            <div className="flex items-start gap-2">
+              <span className="text-yellow-400">⚠</span>
+              <span>Manual review by admin (24-48 hours)</span>
             </div>
-            <div className="flex justify-between">
-              <span>4. Balance Update:</span>
-              <span className="text-purple-400">Instant</span>
+            <div className="flex items-start gap-2">
+              <span className="text-green-400">✓</span>
+              <span>Payment after approval</span>
             </div>
           </div>
         </div>
