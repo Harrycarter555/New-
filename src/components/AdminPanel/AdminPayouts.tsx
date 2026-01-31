@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
-import { payoutService, submissionService } from './firebaseService';
-import { ICONS } from '../../utils/constants';
+import React, { useState, useEffect } from 'react';
+import { ICONS } from '../../constants';
 import { PayoutStatus, SubmissionStatus } from '../../types';
-import { doc, updateDoc, increment, serverTimestamp, getDoc } from 'firebase/firestore';
+import { 
+  doc, getDoc, updateDoc, increment, serverTimestamp, 
+  collection, query, where, getDocs, writeBatch,
+  onSnapshot
+} from 'firebase/firestore';
 import { db } from '../../firebase';
 
 interface AdminPayoutsProps {
@@ -22,58 +25,121 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
 }) => {
   const [processing, setProcessing] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('');
-  const [selectedPayout, setSelectedPayout] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [holdNote, setHoldNote] = useState<string>('');
+  const [cashflow, setCashflow] = useState({ dailyLimit: 100000, todaySpent: 0 });
 
-  // Get all pending payouts (including hold status)
+  // ✅ REAL-TIME CASHFLOW LISTENER
+  useEffect(() => {
+    const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
+    const unsubscribe = onSnapshot(cashflowRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setCashflow({
+          dailyLimit: data.dailyLimit || 100000,
+          todaySpent: data.todaySpent || 0
+        });
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // ✅ GET PENDING PAYOUTS (including hold)
   const pendingPayouts = payouts.filter(p => 
     p.status === PayoutStatus.PENDING || p.status === PayoutStatus.HOLD
   );
 
-  // Get pending submissions
+  // ✅ GET PENDING SUBMISSIONS
   const pendingSubmissions = submissions.filter(s => 
     s.status === SubmissionStatus.PENDING || s.status === SubmissionStatus.VIRAL_CLAIM
   );
 
-  // Handle payout approval
+  // ✅ CHECK CASHFLOW LIMIT BEFORE APPROVAL
+  const checkCashflowBeforeApproval = async (amount: number): Promise<{
+    allowed: boolean;
+    remaining: number;
+    message: string;
+  }> => {
+    const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
+    const cashflowSnap = await getDoc(cashflowRef);
+    
+    if (cashflowSnap.exists()) {
+      const cashflowData = cashflowSnap.data();
+      const remaining = cashflowData.dailyLimit - cashflowData.todaySpent;
+      const allowed = amount <= remaining;
+      
+      return {
+        allowed,
+        remaining,
+        message: allowed 
+          ? `₹${remaining.toLocaleString('en-IN')} available`
+          : `Limit exceeded! Remaining: ₹${remaining.toLocaleString('en-IN')}`
+      };
+    }
+    
+    return { allowed: true, remaining: 100000, message: 'Cashflow data not found' };
+  };
+
+  // ✅ HANDLE PAYOUT APPROVAL WITH CASHFLOW CHECK
   const handleApprovePayout = async (payoutId: string) => {
     setProcessing(payoutId);
     try {
       const payout = payouts.find(p => p.id === payoutId);
       if (!payout) throw new Error('Payout not found');
 
-      // Check cashflow limit
-      const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
-      const cashflowSnap = await getDoc(cashflowRef);
+      // ✅ CASHFLOW LIMIT CHECK
+      const cashflowCheck = await checkCashflowBeforeApproval(payout.amount);
       
-      if (cashflowSnap.exists()) {
-        const cashflowData = cashflowSnap.data();
-        const remaining = cashflowData.dailyLimit - cashflowData.todaySpent;
-        
-        if (payout.amount > remaining) {
-          showToast(`Daily limit exceeded. Remaining: ₹${remaining}`, 'error');
-          setProcessing(null);
-          return;
-        }
+      if (!cashflowCheck.allowed) {
+        // Auto-hold if limit exceeded
+        await updateDoc(doc(db, 'payouts', payoutId), {
+          status: PayoutStatus.HOLD,
+          holdReason: `Daily cashflow limit exceeded. Remaining: ₹${cashflowCheck.remaining}`,
+          holdAt: serverTimestamp(),
+          heldBy: 'system',
+          updatedAt: serverTimestamp()
+        });
+
+        // Return amount to user's wallet
+        await updateDoc(doc(db, 'users', payout.userId), {
+          walletBalance: increment(payout.amount),
+          updatedAt: serverTimestamp()
+        });
+
+        showToast(`Payout auto-held: ${cashflowCheck.message}`, 'error');
+        setProcessing(null);
+        return;
       }
 
-      // Approve payout
-      await payoutService.approvePayout(payoutId, 'admin-id');
+      // ✅ APPROVE PAYOUT
+      const batch = writeBatch(db);
       
-      // Update cashflow
-      await updateDoc(cashflowRef, {
+      // 1. Update payout status
+      const payoutRef = doc(db, 'payouts', payoutId);
+      batch.update(payoutRef, {
+        status: PayoutStatus.APPROVED,
+        processedAt: serverTimestamp(),
+        processedBy: 'admin',
+        updatedAt: serverTimestamp()
+      });
+
+      // 2. Update cashflow
+      const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
+      batch.update(cashflowRef, {
         todaySpent: increment(payout.amount),
         updatedAt: serverTimestamp()
       });
 
-      // Update user wallet balance (deduct)
+      // 3. Update user wallet (deduct)
       const userRef = doc(db, 'users', payout.userId);
-      await updateDoc(userRef, {
+      batch.update(userRef, {
         walletBalance: increment(-payout.amount),
         updatedAt: serverTimestamp()
       });
 
-      showToast(`Payout of ₹${payout.amount} approved successfully`, 'success');
+      await batch.commit();
+      showToast(`Payout of ₹${payout.amount.toLocaleString('en-IN')} approved`, 'success');
+      
     } catch (error: any) {
       console.error('Error approving payout:', error);
       showToast(error.message || 'Failed to approve payout', 'error');
@@ -82,7 +148,7 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
     }
   };
 
-  // Handle payout rejection
+  // ✅ HANDLE PAYOUT REJECTION
   const handleRejectPayout = async (payoutId: string) => {
     if (!rejectReason.trim()) {
       showToast('Please provide a rejection reason', 'error');
@@ -94,18 +160,30 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
       const payout = payouts.find(p => p.id === payoutId);
       if (!payout) throw new Error('Payout not found');
 
-      await payoutService.rejectPayout(payoutId, 'admin-id', rejectReason);
+      const batch = writeBatch(db);
       
-      // Return amount to user's wallet
+      // 1. Update payout status
+      const payoutRef = doc(db, 'payouts', payoutId);
+      batch.update(payoutRef, {
+        status: PayoutStatus.REJECTED,
+        rejectionReason: rejectReason,
+        processedAt: serverTimestamp(),
+        processedBy: 'admin',
+        updatedAt: serverTimestamp()
+      });
+
+      // 2. Return amount to user's wallet
       const userRef = doc(db, 'users', payout.userId);
-      await updateDoc(userRef, {
+      batch.update(userRef, {
         walletBalance: increment(payout.amount),
         updatedAt: serverTimestamp()
       });
 
+      await batch.commit();
       showToast('Payout rejected and amount returned to user', 'success');
       setRejectReason('');
-      setSelectedPayout(null);
+      setSelectedItem(null);
+      
     } catch (error: any) {
       showToast(error.message || 'Failed to reject payout', 'error');
     } finally {
@@ -113,7 +191,7 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
     }
   };
 
-  // Put payout on hold
+  // ✅ PUT PAYOUT ON HOLD
   const handleHoldPayout = async (payoutId: string) => {
     if (!holdNote.trim()) {
       showToast('Please provide a hold reason', 'error');
@@ -129,13 +207,13 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
         status: PayoutStatus.HOLD,
         holdReason: holdNote,
         holdAt: serverTimestamp(),
-        heldBy: 'admin-id',
+        heldBy: 'admin',
         updatedAt: serverTimestamp()
       });
 
       showToast('Payout put on hold', 'success');
       setHoldNote('');
-      setSelectedPayout(null);
+      setSelectedItem(null);
     } catch (error: any) {
       showToast(error.message || 'Failed to put payout on hold', 'error');
     } finally {
@@ -143,10 +221,22 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
     }
   };
 
-  // Release hold
+  // ✅ RELEASE HOLD
   const handleReleaseHold = async (payoutId: string) => {
     setProcessing(payoutId);
     try {
+      const payout = payouts.find(p => p.id === payoutId);
+      if (!payout) throw new Error('Payout not found');
+
+      // Check cashflow before releasing
+      const cashflowCheck = await checkCashflowBeforeApproval(payout.amount);
+      
+      if (!cashflowCheck.allowed) {
+        showToast(`Cannot release: ${cashflowCheck.message}`, 'error');
+        setProcessing(null);
+        return;
+      }
+
       await updateDoc(doc(db, 'payouts', payoutId), {
         status: PayoutStatus.PENDING,
         holdReason: null,
@@ -163,20 +253,38 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
     }
   };
 
-  // Handle submission approval
+  // ✅ APPROVE SUBMISSION
   const handleApproveSubmission = async (submissionId: string) => {
     setProcessing(submissionId);
     try {
       const submission = submissions.find(s => s.id === submissionId);
       if (!submission) throw new Error('Submission not found');
 
-      // Check if it's viral claim
+      const batch = writeBatch(db);
+      
+      // 1. Update submission status
+      const submissionRef = doc(db, 'submissions', submissionId);
+      batch.update(submissionRef, {
+        status: SubmissionStatus.APPROVED,
+        approvedAt: serverTimestamp(),
+        approvedBy: 'admin',
+        updatedAt: serverTimestamp()
+      });
+
+      // 2. Update user's wallet and pending balance
+      const userRef = doc(db, 'users', submission.userId);
+      batch.update(userRef, {
+        walletBalance: increment(submission.rewardAmount),
+        pendingBalance: increment(-submission.rewardAmount),
+        totalEarnings: increment(submission.rewardAmount),
+        updatedAt: serverTimestamp()
+      });
+
+      await batch.commit();
+      
       const isViral = submission.status === SubmissionStatus.VIRAL_CLAIM;
-      
-      await submissionService.approveSubmission(submissionId, 'admin-id');
-      
       showToast(
-        `Submission approved ${isViral ? 'with viral bonus' : ''} and user paid`, 
+        `Submission approved${isViral ? ' with viral bonus' : ''} - ₹${submission.rewardAmount} paid`, 
         'success'
       );
     } catch (error: any) {
@@ -186,7 +294,7 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
     }
   };
 
-  // Handle submission rejection
+  // ✅ REJECT SUBMISSION
   const handleRejectSubmission = async (submissionId: string) => {
     if (!rejectReason.trim()) {
       showToast('Please provide a rejection reason', 'error');
@@ -195,11 +303,33 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
 
     setProcessing(submissionId);
     try {
-      await submissionService.rejectSubmission(submissionId, 'admin-id', rejectReason);
+      const submission = submissions.find(s => s.id === submissionId);
+      if (!submission) throw new Error('Submission not found');
+
+      const batch = writeBatch(db);
+      
+      // 1. Update submission status
+      const submissionRef = doc(db, 'submissions', submissionId);
+      batch.update(submissionRef, {
+        status: SubmissionStatus.REJECTED,
+        rejectionReason: rejectReason,
+        rejectedAt: serverTimestamp(),
+        rejectedBy: 'admin',
+        updatedAt: serverTimestamp()
+      });
+
+      // 2. Remove from user's pending balance
+      const userRef = doc(db, 'users', submission.userId);
+      batch.update(userRef, {
+        pendingBalance: increment(-submission.rewardAmount),
+        updatedAt: serverTimestamp()
+      });
+
+      await batch.commit();
       
       showToast('Submission rejected', 'success');
       setRejectReason('');
-      setSelectedPayout(null);
+      setSelectedItem(null);
     } catch (error: any) {
       showToast(error.message || 'Failed to reject submission', 'error');
     } finally {
@@ -207,6 +337,7 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
     }
   };
 
+  // ✅ FORMAT FUNCTIONS
   const formatCurrency = (amount: number): string => {
     return `₹${amount?.toLocaleString('en-IN') || '0'}`;
   };
@@ -221,78 +352,79 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
     });
   };
 
-  // Calculate totals
+  // ✅ CALCULATE TOTALS
   const totalPendingAmount = pendingPayouts.reduce((sum, p) => sum + (p.amount || 0), 0);
   const totalHoldAmount = pendingPayouts
     .filter(p => p.status === PayoutStatus.HOLD)
     .reduce((sum, p) => sum + (p.amount || 0), 0);
+  const cashflowRemaining = Math.max(0, cashflow.dailyLimit - cashflow.todaySpent);
 
   return (
     <div className="space-y-8 animate-slide">
       {/* Stats Overview */}
       <div className="grid grid-cols-3 gap-4">
         <div className="glass-panel p-5 rounded-2xl text-center">
-          <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Pending Payouts</p>
-          <p className="text-xl font-black text-white">{pendingPayouts.length}</p>
-          <p className="text-[10px] text-cyan-400 font-bold">{formatCurrency(totalPendingAmount)}</p>
+          <p className="text-[10px] font-black text-slate-500 uppercase mb-2">Pending Payouts</p>
+          <p className="text-2xl font-black text-white">{pendingPayouts.length}</p>
+          <p className="text-sm text-cyan-400 font-bold">{formatCurrency(totalPendingAmount)}</p>
         </div>
         
         <div className="glass-panel p-5 rounded-2xl text-center">
-          <p className="text-[8px] font-black text-slate-500 uppercase mb-1">On Hold</p>
-          <p className="text-xl font-black text-orange-400">
+          <p className="text-[10px] font-black text-slate-500 uppercase mb-2">On Hold</p>
+          <p className="text-2xl font-black text-orange-400">
             {pendingPayouts.filter(p => p.status === PayoutStatus.HOLD).length}
           </p>
-          <p className="text-[10px] text-orange-400 font-bold">{formatCurrency(totalHoldAmount)}</p>
+          <p className="text-sm text-orange-400 font-bold">{formatCurrency(totalHoldAmount)}</p>
         </div>
         
         <div className="glass-panel p-5 rounded-2xl text-center">
-          <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Pending Verifications</p>
-          <p className="text-xl font-black text-amber-400">{pendingSubmissions.length}</p>
-          <p className="text-[10px] text-amber-400 font-bold">
-            {formatCurrency(pendingSubmissions.reduce((sum, s) => sum + (s.rewardAmount || 0), 0))}
+          <p className="text-[10px] font-black text-slate-500 uppercase mb-2">Cashflow Remaining</p>
+          <p className="text-2xl font-black text-green-400">{formatCurrency(cashflowRemaining)}</p>
+          <p className="text-xs text-slate-500">
+            of {formatCurrency(cashflow.dailyLimit)}
           </p>
         </div>
       </div>
 
       {/* Tab Switch */}
-      <div className="flex gap-2 bg-white/5 p-1.5 rounded-[24px] border border-white/5 shadow-inner backdrop-blur-md">
+      <div className="flex gap-2 bg-white/5 p-1.5 rounded-[24px] border border-white/5">
         <button
           onClick={() => setPayoutSubTab('payouts')}
-          className={`flex-1 py-3 rounded-2xl font-black text-[10px] uppercase transition-all ${
+          className={`flex-1 py-3 rounded-2xl font-black text-sm uppercase transition-all ${
             payoutSubTab === 'payouts' 
               ? 'bg-cyan-500 text-black shadow-lg' 
               : 'text-slate-500 hover:text-slate-300'
           }`}
         >
-          Node Settlements ({pendingPayouts.length})
+          Payouts ({pendingPayouts.length})
         </button>
         <button
           onClick={() => setPayoutSubTab('verifications')}
-          className={`flex-1 py-3 rounded-2xl font-black text-[10px] uppercase transition-all ${
+          className={`flex-1 py-3 rounded-2xl font-black text-sm uppercase transition-all ${
             payoutSubTab === 'verifications' 
               ? 'bg-cyan-500 text-black shadow-lg' 
               : 'text-slate-500 hover:text-slate-300'
           }`}
         >
-          Mission Verification ({pendingSubmissions.length})
+          Verifications ({pendingSubmissions.length})
         </button>
       </div>
 
       {payoutSubTab === 'payouts' ? (
-        /* Payouts Tab */
+        /* PAYOUTS TAB */
         <div className="space-y-6">
           {/* Rejection/Hold Modal */}
-          {selectedPayout && (
+          {selectedItem && payouts.find(p => p.id === selectedItem) && (
             <div className="glass-panel p-6 rounded-2xl border border-cyan-500/20 animate-slide">
               <div className="flex justify-between items-center mb-4">
                 <h4 className="text-lg font-bold text-white">
-                  {payouts.find(p => p.id === selectedPayout)?.status === PayoutStatus.HOLD 
+                  {payouts.find(p => p.id === selectedItem)?.status === PayoutStatus.HOLD 
                     ? 'Release Hold' 
                     : 'Reject/Hold Payout'}
                 </h4>
                 <button
                   onClick={() => {
-                    setSelectedPayout(null);
+                    setSelectedItem(null);
                     setRejectReason('');
                     setHoldNote('');
                   }}
@@ -302,22 +434,22 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
                 </button>
               </div>
               
-              {payouts.find(p => p.id === selectedPayout)?.status === PayoutStatus.HOLD ? (
+              {payouts.find(p => p.id === selectedItem)?.status === PayoutStatus.HOLD ? (
                 <div className="space-y-4">
                   <p className="text-sm text-slate-400">
                     Payout is currently on hold. Release it to pending status?
                   </p>
                   <div className="flex gap-3">
                     <button
-                      onClick={() => handleReleaseHold(selectedPayout)}
-                      disabled={processing === selectedPayout}
-                      className="flex-1 py-3 bg-green-500 text-black rounded-xl text-xs font-bold uppercase disabled:opacity-50"
+                      onClick={() => handleReleaseHold(selectedItem)}
+                      disabled={processing === selectedItem}
+                      className="flex-1 py-3 bg-green-500 text-black rounded-xl text-sm font-bold uppercase disabled:opacity-50"
                     >
-                      {processing === selectedPayout ? 'Processing...' : 'Release Hold'}
+                      {processing === selectedItem ? 'Processing...' : 'Release Hold'}
                     </button>
                     <button
-                      onClick={() => setSelectedPayout(null)}
-                      className="flex-1 py-3 bg-white/5 text-slate-400 rounded-xl text-xs font-bold uppercase"
+                      onClick={() => setSelectedItem(null)}
+                      className="flex-1 py-3 bg-white/5 text-slate-400 rounded-xl text-sm font-bold uppercase"
                     >
                       Cancel
                     </button>
@@ -347,16 +479,16 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
                   
                   <div className="flex gap-3">
                     <button
-                      onClick={() => handleRejectPayout(selectedPayout)}
-                      disabled={processing === selectedPayout || !rejectReason.trim()}
-                      className="flex-1 py-3 bg-red-500 text-white rounded-xl text-xs font-bold uppercase disabled:opacity-50"
+                      onClick={() => handleRejectPayout(selectedItem)}
+                      disabled={processing === selectedItem || !rejectReason.trim()}
+                      className="flex-1 py-3 bg-red-500 text-white rounded-xl text-sm font-bold uppercase disabled:opacity-50"
                     >
-                      {processing === selectedPayout ? 'Processing...' : 'Reject Payout'}
+                      {processing === selectedItem ? 'Processing...' : 'Reject Payout'}
                     </button>
                     <button
-                      onClick={() => handleHoldPayout(selectedPayout)}
-                      disabled={processing === selectedPayout || !holdNote.trim()}
-                      className="flex-1 py-3 bg-orange-500 text-white rounded-xl text-xs font-bold uppercase disabled:opacity-50"
+                      onClick={() => handleHoldPayout(selectedItem)}
+                      disabled={processing === selectedItem || !holdNote.trim()}
+                      className="flex-1 py-3 bg-orange-500 text-white rounded-xl text-sm font-bold uppercase disabled:opacity-50"
                     >
                       Put on Hold
                     </button>
@@ -370,7 +502,7 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
           {pendingPayouts.length === 0 ? (
             <div className="text-center py-16">
               <ICONS.Wallet className="w-20 h-20 text-slate-700 mx-auto mb-6" />
-              <p className="text-slate-600 text-lg font-black uppercase">No Pending Settlements</p>
+              <p className="text-slate-600 text-lg font-black uppercase">No Pending Payouts</p>
               <p className="text-sm text-slate-500 mt-2">All payouts are processed</p>
             </div>
           ) : (
@@ -380,89 +512,111 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
                   key={payout.id} 
                   className={`glass-panel p-6 rounded-2xl space-y-4 shadow-xl border ${
                     payout.status === PayoutStatus.HOLD 
-                      ? 'border-orange-500/30' 
+                      ? 'border-orange-500/30 bg-orange-500/5' 
                       : 'border-white/5'
                   } animate-slide`}
                 >
                   <div className="flex justify-between items-start">
-                    <div className="space-y-2">
+                    <div className="space-y-2 flex-1">
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-cyan-500/10 rounded-xl flex items-center justify-center">
-                          <ICONS.Wallet className="w-6 h-6 text-cyan-500" />
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                          payout.status === PayoutStatus.HOLD 
+                            ? 'bg-orange-500/20' 
+                            : 'bg-cyan-500/20'
+                        }`}>
+                          <ICONS.Wallet className={`w-6 h-6 ${
+                            payout.status === PayoutStatus.HOLD 
+                              ? 'text-orange-500' 
+                              : 'text-cyan-500'
+                          }`} />
                         </div>
-                        <div>
-                          <p className="text-xl font-black text-white italic">
-                            {formatCurrency(payout.amount)}
-                          </p>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest">
-                              @{payout.username}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 bg-slate-800 rounded-full">
-                              {payout.method}
-                            </span>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3">
+                            <p className="text-xl font-black text-white">
+                              {formatCurrency(payout.amount)}
+                            </p>
                             {payout.status === PayoutStatus.HOLD && (
-                              <span className="text-[10px] px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded-full">
+                              <span className="text-xs px-2 py-1 bg-orange-500/20 text-orange-400 rounded-full">
                                 ON HOLD
                               </span>
                             )}
                           </div>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="text-sm font-bold text-slate-400">
+                              @{payout.username}
+                            </span>
+                            <span className="text-xs px-2 py-1 bg-slate-800 rounded-full">
+                              {payout.method}
+                            </span>
+                          </div>
+                          {payout.holdReason && (
+                            <p className="text-xs text-orange-400 mt-1">
+                              Hold: {payout.holdReason}
+                            </p>
+                          )}
                         </div>
-                      </div>
-                      
-                      <div className="space-y-1 ml-1">
-                        <p className="text-[10px] text-slate-600">
-                          Requested: {formatDate(payout.timestamp)}
-                        </p>
-                        {payout.upiId && (
-                          <p className="text-[10px] text-cyan-400 font-bold">
-                            UPI: {payout.upiId}
-                          </p>
-                        )}
-                        {payout.holdReason && (
-                          <p className="text-[10px] text-orange-400">
-                            Hold Reason: {payout.holdReason}
-                          </p>
-                        )}
                       </div>
                     </div>
                     
                     <div className="text-right">
-                      <p className="text-[8px] text-slate-500 uppercase mb-2">Status</p>
-                      <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase ${
-                        payout.status === PayoutStatus.PENDING
-                          ? 'bg-amber-500/20 text-amber-400'
-                          : 'bg-orange-500/20 text-orange-400'
-                      }`}>
-                        {payout.status}
-                      </span>
+                      <p className="text-xs text-slate-500 mb-2">Requested</p>
+                      <p className="text-xs text-slate-400">
+                        {formatDate(payout.timestamp)}
+                      </p>
                     </div>
                   </div>
                   
+                  {/* ✅ CASHFLOW STATUS INDICATOR */}
+                  {payout.status === PayoutStatus.PENDING && (
+                    <div className={`p-3 rounded-xl border ${
+                      payout.amount <= cashflowRemaining 
+                        ? 'bg-green-500/10 border-green-500/20' 
+                        : 'bg-red-500/10 border-red-500/20'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm font-bold ${
+                          payout.amount <= cashflowRemaining 
+                            ? 'text-green-400' 
+                            : 'text-red-400'
+                        }`}>
+                          {payout.amount <= cashflowRemaining 
+                            ? '✅ Within daily limit' 
+                            : '❌ Exceeds daily limit'
+                          }
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          Remaining: {formatCurrency(cashflowRemaining)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
                   <div className="flex gap-3">
                     {payout.status === PayoutStatus.HOLD ? (
-                      <>
-                        <button
-                          onClick={() => setSelectedPayout(payout.id)}
-                          disabled={processing === payout.id}
-                          className="flex-1 py-3 bg-green-500/10 text-green-400 rounded-xl text-xs font-black uppercase border border-green-500/20 hover:bg-green-500/20 disabled:opacity-50"
-                        >
-                          Review Hold
-                        </button>
-                      </>
+                      <button
+                        onClick={() => setSelectedItem(payout.id)}
+                        disabled={processing === payout.id}
+                        className="flex-1 py-3 bg-green-500/10 text-green-400 rounded-xl text-sm font-black uppercase border border-green-500/20 hover:bg-green-500/20 disabled:opacity-50"
+                      >
+                        Review Hold
+                      </button>
                     ) : (
                       <>
                         <button
                           onClick={() => handleApprovePayout(payout.id)}
-                          disabled={processing === payout.id}
-                          className="flex-1 py-3 bg-green-500 text-black rounded-xl text-xs font-black uppercase shadow-lg disabled:opacity-50"
+                          disabled={processing === payout.id || payout.amount > cashflowRemaining}
+                          className={`flex-1 py-3 rounded-xl text-sm font-black uppercase shadow-lg disabled:opacity-50 ${
+                            payout.amount > cashflowRemaining
+                              ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                              : 'bg-green-500 text-black hover:bg-green-600'
+                          }`}
                         >
                           {processing === payout.id ? 'Processing...' : 'Approve'}
                         </button>
                         <button
-                          onClick={() => setSelectedPayout(payout.id)}
+                          onClick={() => setSelectedItem(payout.id)}
                           disabled={processing === payout.id}
-                          className="flex-1 py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-black uppercase border border-red-500/20 hover:bg-red-500/20 disabled:opacity-50"
+                          className="flex-1 py-3 bg-red-500/10 text-red-400 rounded-xl text-sm font-black uppercase border border-red-500/20 hover:bg-red-500/20 disabled:opacity-50"
                         >
                           Reject/Hold
                         </button>
@@ -473,45 +627,18 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
               ))}
             </div>
           )}
-
-          {/* Processed Payouts Summary */}
-          {payouts.filter(p => p.status === PayoutStatus.APPROVED).length > 0 && (
-            <div className="glass-panel p-5 rounded-2xl border border-green-500/20">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-sm text-green-400 font-bold">Processed Today</p>
-                  <p className="text-xs text-slate-400">
-                    {payouts.filter(p => 
-                      p.status === PayoutStatus.APPROVED && 
-                      new Date(p.processedAt || p.timestamp).toDateString() === new Date().toDateString()
-                    ).length} payouts
-                  </p>
-                </div>
-                <p className="text-lg font-black text-green-400">
-                  {formatCurrency(
-                    payouts
-                      .filter(p => 
-                        p.status === PayoutStatus.APPROVED && 
-                        new Date(p.processedAt || p.timestamp).toDateString() === new Date().toDateString()
-                      )
-                      .reduce((sum, p) => sum + (p.amount || 0), 0)
-                  )}
-                </p>
-              </div>
-            </div>
-          )}
         </div>
       ) : (
-        /* Verifications Tab */
+        /* VERIFICATIONS TAB */
         <div className="space-y-6">
-          {/* Rejection Modal for Submissions */}
-          {selectedPayout && (
+          {/* Rejection Modal */}
+          {selectedItem && submissions.find(s => s.id === selectedItem) && (
             <div className="glass-panel p-6 rounded-2xl border border-red-500/20 animate-slide">
               <div className="flex justify-between items-center mb-4">
                 <h4 className="text-lg font-bold text-white">Reject Submission</h4>
                 <button
                   onClick={() => {
-                    setSelectedPayout(null);
+                    setSelectedItem(null);
                     setRejectReason('');
                   }}
                   className="p-1 hover:bg-white/10 rounded-lg"
@@ -534,15 +661,15 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
                 
                 <div className="flex gap-3">
                   <button
-                    onClick={() => handleRejectSubmission(selectedPayout)}
-                    disabled={processing === selectedPayout || !rejectReason.trim()}
-                    className="flex-1 py-3 bg-red-500 text-white rounded-xl text-xs font-bold uppercase disabled:opacity-50"
+                    onClick={() => handleRejectSubmission(selectedItem)}
+                    disabled={processing === selectedItem || !rejectReason.trim()}
+                    className="flex-1 py-3 bg-red-500 text-white rounded-xl text-sm font-bold uppercase disabled:opacity-50"
                   >
-                    {processing === selectedPayout ? 'Processing...' : 'Confirm Reject'}
+                    {processing === selectedItem ? 'Processing...' : 'Confirm Reject'}
                   </button>
                   <button
-                    onClick={() => setSelectedPayout(null)}
-                    className="flex-1 py-3 bg-white/5 text-slate-400 rounded-xl text-xs font-bold uppercase"
+                    onClick={() => setSelectedItem(null)}
+                    className="flex-1 py-3 bg-white/5 text-slate-400 rounded-xl text-sm font-bold uppercase"
                   >
                     Cancel
                   </button>
@@ -565,51 +692,39 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
                   <div className="flex justify-between items-start">
                     <div className="space-y-2 max-w-[70%]">
                       <div className="flex items-center gap-3">
-                        <img 
-                          src={submissions.find(s => s.id === sub.id)?.thumbnailUrl || ''}
-                          alt="Thumbnail"
-                          className="w-16 h-16 rounded-xl object-cover"
-                          onError={(e) => {
-                            e.currentTarget.src = 'https://via.placeholder.com/64?text=No+Image';
-                          }}
-                        />
+                        <div className="w-16 h-16 rounded-xl overflow-hidden">
+                          <img 
+                            src={sub.thumbnailUrl || 'https://via.placeholder.com/64?text=No+Image'}
+                            alt="Thumbnail"
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
                         <div>
-                          <p className="text-sm font-black text-white italic uppercase tracking-tighter truncate">
+                          <p className="text-sm font-black text-white truncate">
                             {sub.campaignTitle}
                           </p>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] text-slate-500 uppercase font-black">
+                            <span className="text-xs text-slate-500 font-black">
                               @{sub.username}
                             </span>
-                            <span className="text-[10px] px-2 py-0.5 bg-slate-800 rounded-full">
+                            <span className="text-xs px-2 py-1 bg-slate-800 rounded-full">
                               {sub.platform}
                             </span>
                             {sub.status === SubmissionStatus.VIRAL_CLAIM && (
-                              <span className="text-[10px] px-2 py-0.5 bg-cyan-500/20 text-cyan-500 rounded-full">
+                              <span className="text-xs px-2 py-1 bg-cyan-500/20 text-cyan-500 rounded-full">
                                 VIRAL CLAIM
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
-                      
-                      <div className="space-y-1 ml-1">
-                        <p className="text-[10px] text-slate-600">
-                          Submitted: {formatDate(sub.timestamp)}
-                        </p>
-                        {sub.socialUsername && (
-                          <p className="text-[10px] text-cyan-400 font-bold">
-                            Account: {sub.socialUsername}
-                          </p>
-                        )}
-                      </div>
                     </div>
                     
                     <div className="text-right">
-                      <p className="text-lg font-black italic text-white">
+                      <p className="text-xl font-black text-white">
                         {formatCurrency(sub.rewardAmount)}
                       </p>
-                      <p className="text-[10px] text-slate-500 mt-1">
+                      <p className="text-xs text-slate-500 mt-1">
                         {sub.isViralBonus ? 'Viral Bonus' : 'Basic Pay'}
                       </p>
                     </div>
@@ -622,7 +737,7 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
                         href={sub.externalLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[11px] text-slate-300 break-all hover:text-cyan-400 transition-colors"
+                        className="text-sm text-slate-300 break-all hover:text-cyan-400 transition-colors"
                       >
                         {sub.externalLink}
                       </a>
@@ -633,14 +748,14 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
                     <button
                       onClick={() => handleApproveSubmission(sub.id)}
                       disabled={processing === sub.id}
-                      className="flex-1 py-3 bg-cyan-500 text-black rounded-xl text-xs font-black uppercase shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+                      className="flex-1 py-3 bg-cyan-500 text-black rounded-xl text-sm font-black uppercase shadow-lg shadow-cyan-500/20 disabled:opacity-50"
                     >
                       {processing === sub.id ? 'Processing...' : 'Approve & Pay'}
                     </button>
                     <button
-                      onClick={() => setSelectedPayout(sub.id)}
+                      onClick={() => setSelectedItem(sub.id)}
                       disabled={processing === sub.id}
-                      className="flex-1 py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-black uppercase border border-red-500/10 hover:bg-red-500/20 disabled:opacity-50"
+                      className="flex-1 py-3 bg-red-500/10 text-red-400 rounded-xl text-sm font-black uppercase border border-red-500/10 hover:bg-red-500/20 disabled:opacity-50"
                     >
                       Reject
                     </button>
@@ -649,53 +764,32 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
               ))}
             </div>
           )}
-
-          {/* Approved Submissions Summary */}
-          {submissions.filter(s => s.status === SubmissionStatus.APPROVED).length > 0 && (
-            <div className="glass-panel p-5 rounded-2xl border border-cyan-500/20">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-sm text-cyan-400 font-bold">Approved Today</p>
-                  <p className="text-xs text-slate-400">
-                    {submissions.filter(s => 
-                      s.status === SubmissionStatus.APPROVED && 
-                      new Date(s.approvedAt || s.timestamp).toDateString() === new Date().toDateString()
-                    ).length} submissions
-                  </p>
-                </div>
-                <p className="text-lg font-black text-cyan-400">
-                  {formatCurrency(
-                    submissions
-                      .filter(s => 
-                        s.status === SubmissionStatus.APPROVED && 
-                        new Date(s.approvedAt || s.timestamp).toDateString() === new Date().toDateString()
-                      )
-                      .reduce((sum, s) => sum + (s.rewardAmount || 0), 0)
-                  )}
-                </p>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Quick Stats Footer */}
+      {/* Cashflow Status Footer */}
       <div className="glass-panel p-5 rounded-2xl">
-        <div className="grid grid-cols-3 gap-4 text-center">
+        <div className="flex items-center justify-between">
           <div>
-            <p className="text-[8px] text-slate-500 uppercase font-black">Total Requests</p>
-            <p className="text-lg font-black text-white">{payouts.length}</p>
-          </div>
-          <div>
-            <p className="text-[8px] text-slate-500 uppercase font-black">Pending</p>
-            <p className="text-lg font-black text-amber-400">{pendingPayouts.length}</p>
-          </div>
-          <div>
-            <p className="text-[8px] text-slate-500 uppercase font-black">Approved</p>
-            <p className="text-lg font-black text-green-400">
-              {payouts.filter(p => p.status === PayoutStatus.APPROVED).length}
+            <p className="text-sm text-slate-400">Daily Cashflow Status</p>
+            <p className="text-xs text-slate-500">
+              {pendingPayouts.filter(p => p.amount > cashflowRemaining).length} payouts exceed limit
             </p>
           </div>
+          <div className="text-right">
+            <p className="text-lg font-black text-green-400">{formatCurrency(cashflowRemaining)}</p>
+            <p className="text-xs text-slate-500">Available for payouts</p>
+          </div>
+        </div>
+        <div className="mt-3 h-2 bg-white/5 rounded-full overflow-hidden">
+          <div 
+            className="h-full bg-green-500 transition-all duration-1000"
+            style={{ width: `${Math.min((cashflow.todaySpent / cashflow.dailyLimit) * 100, 100)}%` }}
+          />
+        </div>
+        <div className="flex justify-between text-xs text-slate-500 mt-2">
+          <span>Spent: {formatCurrency(cashflow.todaySpent)}</span>
+          <span>Limit: {formatCurrency(cashflow.dailyLimit)}</span>
         </div>
       </div>
     </div>
