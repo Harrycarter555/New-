@@ -83,7 +83,7 @@ export const initializationService = {
         endDate.setFullYear(today.getFullYear() + 1);
         
         batch.set(cashflowRef, {
-          dailyLimit:100000,
+          dailyLimit: 100000,
           todaySpent: 0,
           startDate: today.toISOString().split('T')[0],
           endDate: endDate.toISOString().split('T')[0],
@@ -101,7 +101,7 @@ export const initializationService = {
       if (!configSnap.exists()) {
         batch.set(configRef, {
           minWithdrawal: 100,
-          dailyLimit:100000,
+          dailyLimit: 100000,
           appName: 'ReelEarn Pro',
           version: '1.0.0',
           createdBy: user.uid,
@@ -1058,8 +1058,8 @@ const cashflowService = {
       if (cashflowSnap.exists()) {
         const data = cashflowSnap.data();
         return {
-          dailyLimit: data.dailyLimit ,
-          todaySpent: data.todaySpent ,
+          dailyLimit: data.dailyLimit || 100000,
+          todaySpent: data.todaySpent || 0,
           startDate: data.startDate || '',
           endDate: data.endDate || ''
         };
@@ -1069,7 +1069,7 @@ const cashflowService = {
         endDate.setFullYear(today.getFullYear() + 1);
         
         const defaultCashflow = {
-          dailyLimit:100000,
+          dailyLimit: 100000,
           todaySpent: 0,
           startDate: today.toISOString().split('T')[0],
           endDate: endDate.toISOString().split('T')[0],
@@ -1093,7 +1093,7 @@ const cashflowService = {
 
   updateDailyLimit: async (dailyLimit: number) => {
     try {
-      if (dailyLimit < 100) throw new Error('Minimum daily limit is ₹100');
+      if (dailyLimit < 1000) throw new Error('Minimum daily limit is ₹1000');
       
       await updateDoc(doc(db, 'cashflow', 'daily-cashflow'), {
         dailyLimit,
@@ -1366,9 +1366,9 @@ const statsService = {
         activeCampaigns: 0,
         pendingSubmissions: 0,
         pendingSubmissionsAmount: 0,
-        cashflowRemaining: 0,
+        cashflowRemaining: 100000,
         pendingCashflow: 0,
-        dailyLimit: 0,
+        dailyLimit: 100000,
         todaySpent: 0
       };
     }
