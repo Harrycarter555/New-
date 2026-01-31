@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ICONS } from '../../constants';
-import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs, writeBatch, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 interface AdminCashflowProps {
