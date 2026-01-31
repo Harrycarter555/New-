@@ -1366,9 +1366,9 @@ const statsService = {
         activeCampaigns: 0,
         pendingSubmissions: 0,
         pendingSubmissionsAmount: 0,
-        cashflowRemaining: 100000,
+        cashflowRemaining: 0,
         pendingCashflow: 0,
-        dailyLimit: 100000,
+        dailyLimit: 0,
         todaySpent: 0
       };
     }
@@ -1586,6 +1586,7 @@ const reportService = {
 };
 
 // ========== EXPORT ALL SERVICES ==========
+// ✅ FIXED: Removed duplicate exports
 export {
   adminService,
   cashflowService,
@@ -1595,7 +1596,9 @@ export {
   userService,
   payoutService,
   submissionService,
-  reportService,
-  checkFirebaseConnection,
-  initializationService
+  reportService
 };
+
+// ✅ checkFirebaseConnection aur initializationService already 
+//    export ho chuke hain file ke start mein (line 8 aur 49 par)
+//    Isliye yahan dobara export nahi karna hai
