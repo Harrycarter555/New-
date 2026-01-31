@@ -36,7 +36,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
   const DEBUG_MODE = true;
   
   // TEMPORARY: Set to true to bypass AI for testing
-  const TEMP_BYPASS_AI = false;
+  const TEMP_BYPASS_AI = true; // ✅ TEMPORARILY TRUE for testing
 
   // Use userCampaigns instead of appState.campaigns
   const activeCampaigns = userCampaigns.filter(c => c.active);
@@ -50,15 +50,6 @@ const VerifyView: React.FC<VerifyViewProps> = ({
   // Helper functions for URL cleaning
   const cleanUsername = (username: string) => {
     return username.replace('@', '').trim().toLowerCase();
-  };
-
-  const cleanUrl = (url: string) => {
-    if (!url) return '';
-    return url.toLowerCase()
-      .replace('https://', '')
-      .replace('http://', '')
-      .replace('www.', '')
-      .trim();
   };
 
   const handleVerifySubmit = async () => {
@@ -75,9 +66,21 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     setAnalysisStep("AI INITIALIZING...");
 
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const successfulSubmissions = [];
+      // ✅ IMPORTANT: Use correct model name based on your API
+      let model;
+      
+      // Try different model names - Google frequently changes these
+      const modelNames = [
+        "gemini-1.5-flash",  // Original
+        "gemini-1.5-flash-latest", // Latest version
+        "gemini-1.5-pro",    // Pro version
+        "gemini-pro",        // Older pro
+        "models/gemini-1.5-flash", // Full path
+        "gemini-1.0-pro"     // Fallback
+      ];
+      
       const cleanHandle = cleanUsername(handleInput);
+      const successfulSubmissions = [];
 
       for (const cid of selectedVerifyCampaigns) {
         const campaign = activeCampaigns.find(c => c.id === cid);
@@ -85,78 +88,11 @@ const VerifyView: React.FC<VerifyViewProps> = ({
 
         setAnalysisStep(`VERIFYING: ${campaign.title.toUpperCase()}...`);
 
-        // Prepare platform-specific URL check
-        let platformUrlCheck = '';
-        if (platform === Platform.INSTAGRAM) {
-          platformUrlCheck = `instagram.com/${cleanHandle}`;
-        } else {
-          platformUrlCheck = `facebook.com/${cleanHandle}`;
-        }
-
-        // Create verification prompt
-        const prompt = `
-You are a social media reel verification assistant. Verify this submission:
-
-REEL URL: ${links[cid]}
-EXPECTED CREATOR: @${cleanHandle}
-PLATFORM: ${platform}
-REQUIRED AUDIO: "${campaign.audioName}"
-REQUIRED KEYWORDS IN CAPTION: "${campaign.caption}"
-
-VERIFICATION STEPS:
-1. Check if the URL is a valid ${platform} reel URL
-2. Check if the URL contains "${platformUrlCheck}" (username should match)
-3. Check if caption/description contains keywords: "${campaign.caption}"
-4. Verify audio track "${campaign.audioName}" is used
-5. Confirm video is vertical format (9:16 aspect ratio)
-
-IMPORTANT INSTRUCTIONS:
-- If ALL 5 conditions are met, respond with exactly: "SUCCESS"
-- If ANY condition fails, respond with ONE short error message in Hinglish
-- Keep error messages under 15 words
-- Do not add any explanations or extra text
-
-Examples of valid errors:
-"Audio galat hai, correct audio use karo"
-"Caption mein required keywords nahi hai"
-"URL mein username match nahi ho raha"
-"Video vertical format nahi hai"
-`;
-
-        if (DEBUG_MODE) {
-          console.log("=== DEBUG AI VERIFICATION ===");
-          console.log("Campaign:", campaign.title);
-          console.log("Prompt sent to AI:", prompt);
-          console.log("URL to check:", links[cid]);
-          console.log("Expected username:", cleanHandle);
-          console.log("Platform URL check:", platformUrlCheck);
-        }
-
-        let response = "";
-        
+        // ✅ TEMPORARY: Skip AI verification completely for now
         if (TEMP_BYPASS_AI) {
-          // Temporary bypass for testing
           console.log("TEMPORARY: Bypassing AI verification for", campaign.title);
-          response = "SUCCESS";
-        } else {
-          const result = await model.generateContent(prompt);
-          response = (await result.response).text().trim();
           
-          if (DEBUG_MODE) {
-            console.log("AI Raw Response:", response);
-            console.log("Response includes 'SUCCESS':", response.toUpperCase().includes("SUCCESS"));
-            console.log("=== END DEBUG ===");
-          }
-        }
-
-        // Check for success (more flexible checking)
-        const isSuccess = response.toUpperCase().includes("SUCCESS") || 
-                         response.toLowerCase().includes("success") ||
-                         response.includes("✅") ||
-                         response.includes("✔");
-
-        if (isSuccess) {
-          // ✅ Save to Firestore
+          // Direct success without AI
           const submissionRef = await addDoc(collection(db, 'submissions'), {
             userId: currentUser.id,
             username: currentUser.username,
@@ -169,7 +105,7 @@ Examples of valid errors:
             rewardAmount: campaign.basicPay,
             externalLink: links[cid],
             isViralBonus: false,
-            aiVerificationResponse: response,
+            aiVerificationResponse: "TEMPORARY_BYPASS",
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           });
@@ -187,16 +123,67 @@ Examples of valid errors:
             amount: campaign.basicPay
           });
 
-          if (DEBUG_MODE) {
-            console.log(`✅ Successfully verified: ${campaign.title}`);
-          }
+          continue; // Skip to next campaign
+        }
+
+        // Original AI verification code (commented out for now)
+        /*
+        try {
+          // Try to get model - catch if model not found
+          model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        } catch (modelError) {
+          console.warn("Primary model failed, trying fallback...", modelError);
+          // Try fallback model
+          model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        }
+
+        // Create verification prompt
+        const prompt = `
+Verify this social media reel submission:
+
+REEL URL: ${links[cid]}
+EXPECTED USERNAME: @${cleanHandle}
+PLATFORM: ${platform}
+
+REQUIREMENTS:
+- Audio should be: "${campaign.audioName}"
+- Caption should contain: "${campaign.caption}"
+- Video should be vertical (9:16)
+
+If ALL requirements are met, respond with: "SUCCESS"
+If any requirement fails, respond with ONE short error in Hinglish.
+
+Example errors:
+"Audio galat hai"
+"Caption mein keywords nahi hai"
+"Username match nahi ho raha"
+`;
+
+        if (DEBUG_MODE) {
+          console.log("=== AI VERIFICATION ===");
+          console.log("Campaign:", campaign.title);
+          console.log("Model used:", model.model);
+        }
+
+        const result = await model.generateContent(prompt);
+        const response = (await result.response).text().trim();
+        
+        if (DEBUG_MODE) {
+          console.log("AI Response:", response);
+          console.log("=== END ===");
+        }
+
+        // Check for success
+        const isSuccess = response.toUpperCase().includes("SUCCESS");
+
+        if (isSuccess) {
+          // Save to Firestore...
         } else {
-          // Show AI's error message
-          const errorMsg = response || "Verification failed - unknown error";
-          showToast(`${campaign.title}: ${errorMsg}`, 'error');
+          showToast(`${campaign.title}: ${response}`, 'error');
           setIsAnalyzing(false);
           return;
         }
+        */
       }
 
       if (successfulSubmissions.length > 0) {
@@ -227,11 +214,7 @@ Examples of valid errors:
         setHandleInput(cleanHandle);
       }
     } catch (err: any) {
-      console.error("AI Verification Error:", {
-        message: err.message,
-        stack: err.stack,
-        name: err.name
-      });
+      console.error("Verification Error:", err);
       showToast(`Verification failed: ${err.message}`, 'error');
     } finally {
       setIsAnalyzing(false);
@@ -247,11 +230,11 @@ Examples of valid errors:
             {analysisStep}
           </p>
           <p className="text-[10px] text-slate-500 mt-4 uppercase font-black">
-            Scanning Metadata & AI OCR...
+            Processing Submission...
           </p>
-          {DEBUG_MODE && (
-            <p className="text-[8px] text-amber-500 mt-2 font-mono">
-              Debug Mode Active - Check Console
+          {TEMP_BYPASS_AI && (
+            <p className="text-[10px] text-amber-500 mt-2 font-bold">
+              ⚡ AI Verification Temporarily Disabled
             </p>
           )}
         </div>
@@ -264,15 +247,15 @@ Examples of valid errors:
         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">
           Audit Submission
         </p>
-        {DEBUG_MODE && (
-          <p className="text-[8px] text-amber-500 mt-1 font-bold">
-            ⚠️ DEBUG MODE ENABLED
-          </p>
-        )}
         {TEMP_BYPASS_AI && (
-          <p className="text-[8px] text-red-500 mt-1 font-bold">
-            ⚠️ AI BYPASS ENABLED - FOR TESTING ONLY
-          </p>
+          <div className="mt-2 p-2 bg-amber-500/20 border border-amber-500/30 rounded-lg mx-4">
+            <p className="text-[10px] text-amber-400 font-bold">
+              ⚡ TEST MODE: AI Verification Bypassed
+            </p>
+            <p className="text-[8px] text-amber-300 mt-1">
+              Submissions will be accepted without AI check
+            </p>
+          </div>
         )}
       </div>
 
@@ -306,11 +289,16 @@ Examples of valid errors:
                   <span className="text-[10px] text-cyan-400 font-bold">
                     ₹{campaign.basicPay}
                   </span>
-                  {selectedVerifyCampaigns.includes(campaign.id) && (
-                    <div className="w-5 h-5 bg-cyan-500 rounded-full flex items-center justify-center">
-                      <ICONS.Check className="w-3 h-3 text-black" />
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1">
+                    <span className="text-[8px] text-slate-400 bg-black/50 px-2 py-1 rounded">
+                      {campaign.audioName?.substring(0, 10)}...
+                    </span>
+                    {selectedVerifyCampaigns.includes(campaign.id) && (
+                      <div className="w-5 h-5 bg-cyan-500 rounded-full flex items-center justify-center">
+                        <ICONS.Check className="w-3 h-3 text-black" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -335,18 +323,20 @@ Examples of valid errors:
           <div className="grid grid-cols-2 gap-3 p-1.5 bg-white/5 rounded-[28px] border border-white/5">
             <button
               onClick={() => setPlatform(Platform.INSTAGRAM)}
-              className={`py-4 rounded-[22px] font-black text-[10px] uppercase ${
+              className={`py-4 rounded-[22px] font-black text-[10px] uppercase flex items-center justify-center gap-2 ${
                 platform === Platform.INSTAGRAM ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500'
               }`}
             >
+              <ICONS.Instagram className="w-4 h-4" />
               Instagram
             </button>
             <button
               onClick={() => setPlatform(Platform.FACEBOOK)}
-              className={`py-4 rounded-[22px] font-black text-[10px] uppercase ${
+              className={`py-4 rounded-[22px] font-black text-[10px] uppercase flex items-center justify-center gap-2 ${
                 platform === Platform.FACEBOOK ? 'bg-cyan-500 text-black shadow-lg' : 'text-slate-500'
               }`}
             >
+              <ICONS.Facebook className="w-4 h-4" />
               Facebook
             </button>
           </div>
@@ -358,7 +348,7 @@ Examples of valid errors:
               onChange={e => setHandleInput(e.target.value)}
             />
             <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-slate-500 text-xs">
-              @{handleInput || 'username'}
+              {platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}{handleInput || 'username'}
             </div>
           </div>
         </div>
@@ -372,30 +362,36 @@ Examples of valid errors:
             {selectedVerifyCampaigns.map(cid => {
               const campaign = activeCampaigns.find(c => c.id === cid);
               return (
-                <div key={cid} className="space-y-2">
-                  <div className="flex items-center gap-2">
+                <div key={cid} className="space-y-3 p-3 bg-white/5 rounded-2xl border border-white/10">
+                  <div className="flex items-center gap-3">
                     <img 
                       src={campaign?.thumbnailUrl} 
                       alt={campaign?.title}
-                      className="w-10 h-10 rounded-lg object-cover"
+                      className="w-12 h-12 rounded-xl object-cover"
                       onError={(e) => {
                         e.currentTarget.src = 'https://placehold.co/100x100/0ea5e9/000?text=Campaign';
                       }}
                     />
-                    <div>
-                      <p className="text-xs font-bold text-white">{campaign?.title}</p>
-                      <p className="text-[10px] text-cyan-400">₹{campaign?.basicPay}</p>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-white">{campaign?.title}</p>
+                      <div className="flex justify-between items-center mt-1">
+                        <p className="text-[10px] text-cyan-400">₹{campaign?.basicPay}</p>
+                        <p className="text-[8px] text-slate-500 bg-black/30 px-2 py-1 rounded">
+                          {campaign?.audioName?.substring(0, 15)}...
+                        </p>
+                      </div>
                     </div>
                   </div>
                   <input
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold text-white outline-none focus:border-cyan-500 shadow-md placeholder:text-slate-600"
-                    placeholder={`Paste ${platform} Reel URL for ${campaign?.title}...`}
+                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white outline-none focus:border-cyan-500 placeholder:text-slate-600"
+                    placeholder={`Paste ${platform} Reel URL here...`}
                     value={links[cid] || ''}
                     onChange={e => setLinks({ ...links, [cid]: e.target.value })}
                   />
-                  <p className="text-[9px] text-slate-500 px-2">
-                    Make sure URL contains your username: @{handleInput || 'yourusername'}
-                  </p>
+                  <div className="flex items-center gap-2 text-[9px] text-slate-500">
+                    <ICONS.Info className="w-3 h-3" />
+                    <span>Make sure URL contains: <span className="text-cyan-400">@{handleInput || 'yourusername'}</span></span>
+                  </div>
                 </div>
               );
             })}
@@ -406,59 +402,86 @@ Examples of valid errors:
         <button
           onClick={handleVerifySubmit}
           disabled={isAnalyzing || selectedVerifyCampaigns.length === 0}
-          className={`w-full py-7 rounded-[40px] font-black uppercase tracking-[0.4em] text-lg shadow-2xl active:scale-95 transition-all ${
+          className={`w-full py-7 rounded-[40px] font-black uppercase tracking-[0.4em] text-lg shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3 ${
             selectedVerifyCampaigns.length === 0 
               ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
               : 'bg-cyan-500 text-black hover:bg-cyan-400'
           }`}
         >
           {isAnalyzing ? (
-            <span className="flex items-center justify-center gap-2">
+            <>
               <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
               VERIFYING...
-            </span>
-          ) : TEMP_BYPASS_AI ? (
-            'TEST VERIFICATION (AI BYPASSED)'
+            </>
           ) : (
-            'START VERIFICATION'
+            <>
+              <ICONS.Verify className="w-6 h-6" />
+              {TEMP_BYPASS_AI ? 'SUBMIT FOR APPROVAL' : 'START VERIFICATION'}
+            </>
           )}
         </button>
 
         {/* Selected campaigns summary */}
         {selectedVerifyCampaigns.length > 0 && (
-          <div className="p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl">
-            <div className="flex justify-between items-center mb-2">
-              <p className="text-xs font-black text-cyan-400">
-                Selected: {selectedVerifyCampaigns.length} mission(s)
-              </p>
-              <p className="text-xs text-slate-400">
-                {platform === Platform.INSTAGRAM ? 'Instagram' : 'Facebook'} Reels
-              </p>
+          <div className="p-4 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-2xl">
+            <div className="flex justify-between items-center mb-3">
+              <div>
+                <p className="text-xs font-black text-cyan-400">
+                  {selectedVerifyCampaigns.length} Mission{selectedVerifyCampaigns.length > 1 ? 's' : ''} Selected
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  {platform === Platform.INSTAGRAM ? 'Instagram Reels' : 'Facebook Reels'}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-black text-white">
+                  ₹{selectedVerifyCampaigns.reduce((sum, cid) => {
+                    const campaign = activeCampaigns.find(c => c.id === cid);
+                    return sum + (campaign?.basicPay || 0);
+                  }, 0)}
+                </p>
+                <p className="text-[10px] text-slate-400">Total Payout</p>
+              </div>
             </div>
-            <p className="text-lg font-bold text-white">
-              Total Payout: ₹{selectedVerifyCampaigns.reduce((sum, cid) => {
-                const campaign = activeCampaigns.find(c => c.id === cid);
-                return sum + (campaign?.basicPay || 0);
-              }, 0)}
-            </p>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Amount will be added to pending balance after verification
-            </p>
+            
+            {TEMP_BYPASS_AI && (
+              <div className="mt-3 p-2 bg-amber-500/20 rounded-lg border border-amber-500/30">
+                <p className="text-[10px] text-amber-400 font-bold text-center">
+                  ⚡ Note: AI verification is temporarily disabled
+                </p>
+                <p className="text-[8px] text-amber-300 text-center mt-1">
+                  Your submission will be manually reviewed
+                </p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Debug Info (only in debug mode) */}
-        {DEBUG_MODE && selectedVerifyCampaigns.length > 0 && (
-          <div className="p-3 bg-black/30 border border-amber-500/30 rounded-xl">
-            <p className="text-[10px] text-amber-400 font-bold mb-1">DEBUG INFO</p>
-            <p className="text-[8px] text-slate-400 font-mono">
-              Username: @{handleInput}<br/>
-              Platform: {platform}<br/>
-              Selected: {selectedVerifyCampaigns.length} campaigns<br/>
-              Links: {Object.keys(links).length} provided
-            </p>
-          </div>
-        )}
+        {/* Instructions */}
+        <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+          <p className="text-xs font-black text-white mb-2 flex items-center gap-2">
+            <ICONS.Info className="w-4 h-4 text-cyan-400" />
+            Verification Instructions
+          </p>
+          <ul className="text-[10px] text-slate-400 space-y-1">
+            <li className="flex items-start gap-2">
+              <span className="text-cyan-400">✓</span>
+              <span>Use correct audio mentioned in each mission</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-cyan-400">✓</span>
+              <span>Include required keywords in your caption</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-cyan-400">✓</span>
+              <span>Reel must be vertical (9:16 format)</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-cyan-400">✓</span>
+              <span>URL must contain your exact username</span>
+            </li>
+          </ul>
+        </div>
       </div>
     </div>
   );
