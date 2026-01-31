@@ -9,9 +9,6 @@ import {
 // Import Auth functions from 'firebase/auth'
 import { getAuth } from 'firebase/auth';
 
-// Import App functions from 'firebase/app'
-import { getApp } from 'firebase/app';
-
 import { db } from '../../firebase';
 import { 
   User, UserRole, UserStatus, Campaign, Submission, 
@@ -24,16 +21,13 @@ export const checkFirebaseConnection = async (): Promise<boolean> => {
   try {
     console.log('🔍 Checking Firebase connection...');
     
-    // Check if Firestore db object is available
     if (!db) {
       console.error('❌ Firestore db not initialized');
       return false;
     }
     
-    // Use a dedicated test collection that everyone can access
     const testRef = doc(db, '_test', 'connection');
     
-    // Write test (allowed for everyone in rules)
     await setDoc(testRef, {
       timestamp: Date.now(),
       test: 'connection_check',
@@ -49,20 +43,15 @@ export const checkFirebaseConnection = async (): Promise<boolean> => {
       message: error.message
     });
     
-    // Even if error, check if it's a permissions issue or real connection issue
     if (error.code === 'permission-denied') {
-      // This means Firebase IS connected but we don't have permission
-      // Which is okay for connection check
       console.log('⚠️ Firebase connected but permissions restricted');
       return true;
     }
     
-    // Real connection issues
     if (error.code === 'unavailable' || error.code === 'failed-precondition') {
       return false;
     }
     
-    // For other errors, assume connected
     return true;
   }
 };
@@ -73,7 +62,6 @@ export const initializationService = {
     try {
       console.log('Initializing Firestore collections...');
       
-      // First ensure we have a logged in user (admin)
       const auth = getAuth();
       const user = auth.currentUser;
       
@@ -349,7 +337,6 @@ const adminService = {
     try {
       console.log('🔄 Loading admin dashboard data...');
       
-      // Load all data in parallel
       const [users, campaigns, payouts, submissions, reports, broadcasts] = await Promise.all([
         fetchUsers(),
         fetchCampaigns(),
@@ -378,7 +365,6 @@ const adminService = {
       };
     } catch (error) {
       console.error('Error loading admin dashboard data:', error);
-      // Return empty data on error
       return {
         users: [],
         campaigns: [],
@@ -429,8 +415,6 @@ const adminService = {
           } as User;
         });
         callbacks.onUsers!(users);
-      }, (error) => {
-        console.error('Users listener error:', error);
       });
       unsubscribers.push(unsub);
     }
@@ -461,8 +445,6 @@ const adminService = {
           } as Campaign;
         });
         callbacks.onCampaigns!(campaigns);
-      }, (error) => {
-        console.error('Campaigns listener error:', error);
       });
       unsubscribers.push(unsub);
     }
@@ -493,8 +475,6 @@ const adminService = {
           } as Submission;
         });
         callbacks.onSubmissions!(submissions);
-      }, (error) => {
-        console.error('Submissions listener error:', error);
       });
       unsubscribers.push(unsub);
     }
@@ -526,8 +506,6 @@ const adminService = {
           } as PayoutRequest;
         });
         callbacks.onPayouts!(payouts);
-      }, (error) => {
-        console.error('Payouts listener error:', error);
       });
       unsubscribers.push(unsub);
     }
@@ -553,8 +531,6 @@ const adminService = {
           } as UserReport;
         });
         callbacks.onReports!(reports);
-      }, (error) => {
-        console.error('Reports listener error:', error);
       });
       unsubscribers.push(unsub);
     }
@@ -578,8 +554,6 @@ const adminService = {
           } as Broadcast;
         });
         callbacks.onBroadcasts!(broadcasts);
-      }, (error) => {
-        console.error('Broadcasts listener error:', error);
       });
       unsubscribers.push(unsub);
     }
@@ -623,7 +597,7 @@ const adminService = {
     }
   },
 
-  // Approve payout with cashflow check
+  // ✅ FIXED: Approve payout with proper error handling
   approvePayout: async (payoutId: string, adminId: string) => {
     try {
       const payoutRef = doc(db, 'payouts', payoutId);
@@ -657,16 +631,12 @@ const adminService = {
       });
       
       // Update cashflow
-      await updateDoc(cashflowRef, {
-        todaySpent: increment(amount),
-        updatedAt: serverTimestamp()
-      });
-      
-      // Update user's wallet balance
-      await updateDoc(doc(db, 'users', userId), {
-        walletBalance: increment(-amount),
-        updatedAt: serverTimestamp()
-      });
+      if (cashflowSnap.exists()) {
+        await updateDoc(cashflowRef, {
+          todaySpent: increment(amount),
+          updatedAt: serverTimestamp()
+        });
+      }
       
       // Log the action
       await addDoc(collection(db, 'logs'), {
@@ -705,12 +675,6 @@ const adminService = {
         rejectionReason: reason || '',
         processedAt: Date.now(),
         processedBy: adminId,
-        updatedAt: serverTimestamp()
-      });
-      
-      // Return amount to user's wallet
-      await updateDoc(doc(db, 'users', userId), {
-        walletBalance: increment(amount),
         updatedAt: serverTimestamp()
       });
       
@@ -950,7 +914,7 @@ const adminService = {
     }
   },
 
-  // User payout request (for user-side)
+  // ✅ FIXED: User payout request with proper field names
   requestPayout: async (
     userId: string,
     username: string,
@@ -960,6 +924,8 @@ const adminService = {
     upiId?: string
   ): Promise<string> => {
     try {
+      console.log('🔄 Processing payout request:', { userId, amount, method });
+      
       // Check if user has sufficient balance
       const userRef = doc(db, 'users', userId);
       const userSnap = await getDoc(userRef);
@@ -971,18 +937,12 @@ const adminService = {
         throw new Error('Insufficient balance');
       }
       
-      // Deduct from user's wallet
-      await updateDoc(userRef, {
-        walletBalance: increment(-amount),
-        updatedAt: serverTimestamp()
-      });
-      
-      // Create payout request
-      const payoutRef = await addDoc(collection(db, 'payouts'), {
+      // ✅ FIXED: Create payout document FIRST
+      const payoutData = {
         userId,
         username,
         amount,
-        method,
+        method: method, // Field name matches your code
         upiId: upiId || '',
         accountDetails: details,
         status: PayoutStatus.PENDING,
@@ -990,16 +950,34 @@ const adminService = {
         requestedAt: Date.now(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
+      };
+      
+      console.log('📤 Creating payout with data:', payoutData);
+      
+      const payoutRef = await addDoc(collection(db, 'payouts'), payoutData);
+      
+      console.log('✅ Payout request created:', payoutRef.id);
+      
+      // ✅ FIXED: THEN update user balance (rules allow this)
+      await updateDoc(userRef, {
+        walletBalance: increment(-amount),
+        updatedAt: serverTimestamp()
       });
       
+      console.log('✅ User balance updated');
+      
       return payoutRef.id;
-    } catch (error) {
-      console.error('Error requesting payout:', error);
+    } catch (error: any) {
+      console.error('❌ Error requesting payout:', {
+        code: error.code,
+        message: error.message,
+        details: error
+      });
       throw error;
     }
   },
 
-  // Submit report (for user-side)
+  // Submit report
   submitReport: async (
     userId: string,
     username: string,
@@ -1027,7 +1005,7 @@ const adminService = {
     }
   },
 
-  // Create submission (for user-side)
+  // Create submission
   createSubmission: async (
     userId: string,
     username: string,
@@ -1086,7 +1064,6 @@ const cashflowService = {
           endDate: data.endDate || ''
         };
       } else {
-        // Create default
         const today = new Date();
         const endDate = new Date(today);
         endDate.setFullYear(today.getFullYear() + 1);
@@ -1105,7 +1082,6 @@ const cashflowService = {
       }
     } catch (error) {
       console.error('Error loading cashflow:', error);
-      // Return defaults
       return {
         dailyLimit: 100000,
         todaySpent: 0,
@@ -1149,7 +1125,6 @@ const cashflowService = {
     }
   },
 
-  // Add to today's spent (for payouts)
   addToTodaySpent: async (amount: number) => {
     try {
       await updateDoc(doc(db, 'cashflow', 'daily-cashflow'), {
@@ -1190,7 +1165,6 @@ const broadcastService = {
 
       const broadcastRef = await addDoc(collection(db, 'broadcasts'), broadcastData);
       
-      // Log the broadcast
       await addDoc(collection(db, 'logs'), {
         type: 'broadcast',
         action: 'send',
@@ -1208,7 +1182,6 @@ const broadcastService = {
     }
   },
 
-  // Send to multiple users
   sendToMultipleUsers: async (
     content: string,
     senderId: string,
@@ -1239,7 +1212,6 @@ const broadcastService = {
 
       await batch.commit();
 
-      // Log the batch broadcast
       await addDoc(collection(db, 'logs'), {
         type: 'broadcast',
         action: 'send_batch',
@@ -1264,7 +1236,6 @@ const broadcastService = {
         updatedAt: serverTimestamp()
       });
 
-      // Update user's read broadcast IDs
       await updateDoc(doc(db, 'users', userId), {
         readBroadcastIds: arrayUnion(broadcastId),
         updatedAt: serverTimestamp()
@@ -1490,8 +1461,22 @@ const userService = {
     }
   },
 
-  // WalletView.tsx mein use hone wala method
-  requestPayout: adminService.requestPayout
+  // ✅ FIXED: Use the corrected requestPayout
+  requestPayout: adminService.requestPayout,
+
+  // ✅ Add updateUserLastLogin function
+  updateUserLastLogin: async (userId: string) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        lastLoginAt: Date.now(),
+        updatedAt: serverTimestamp()
+      });
+      return true;
+    } catch (error) {
+      console.error('Error updating last login:', error);
+      throw error;
+    }
+  }
 };
 
 // ========== PAYOUT SERVICE ==========
@@ -1610,5 +1595,7 @@ export {
   userService,
   payoutService,
   submissionService,
-  reportService
+  reportService,
+  checkFirebaseConnection,
+  initializationService
 };
