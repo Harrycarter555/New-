@@ -1,10 +1,9 @@
-// FIXED FIREBASE CONFIGURATION
+// FIXED FIREBASE CONFIG
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { 
   initializeFirestore, 
-  persistentLocalCache, 
-  CACHE_SIZE_UNLIMITED,
+  persistentLocalCache,
   collection,
   getDocs,
   query,
@@ -22,66 +21,26 @@ const firebaseConfig = {
 };
 
 // ✅ Initialize Firebase
-console.log('Initializing Firebase...');
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 
-// ✅ Initialize Firestore with offline persistence
+// ✅ Initialize Firestore with offline persistence (FIXED CACHE SIZE)
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    cacheSizeBytes: CACHE_SIZE_UNLIMITED
-  })
+  localCache: persistentLocalCache()
 });
 
-// ✅ Export serverTimestamp
 export { serverTimestamp };
 
-// ✅ Connection status
+// ✅ Real-time connection status
 let isOnline = navigator.onLine;
-let firestoreReady = false;
 
-// Listen to online/offline events
-window.addEventListener('online', () => {
-  console.log('✅ Online mode activated');
-  isOnline = true;
-});
-
-window.addEventListener('offline', () => {
-  console.log('⚠️ Offline mode activated');
-  isOnline = false;
-});
-
-export const checkFirebaseConnection = async (): Promise<{
-  connected: boolean;
-  online: boolean;
-  firestoreReady: boolean;
-}> => {
+export const checkFirebaseConnection = async () => {
   try {
-    // Simple test query
     const testRef = collection(db, '_test');
-    await getDocs(query(testRef, limit(1))).catch(() => {
-      // This is expected to fail - we just want to test connection
-    });
-    
-    firestoreReady = true;
-    return {
-      connected: true,
-      online: isOnline,
-      firestoreReady: true
-    };
+    await getDocs(query(testRef, limit(1)));
+    return { connected: true, online: isOnline };
   } catch (error) {
-    console.log('Firestore connection test:', error);
-    return {
-      connected: false,
-      online: isOnline,
-      firestoreReady: false
-    };
+    return { connected: false, online: isOnline };
   }
 };
-
-export const getFirebaseStatus = () => ({
-  online: isOnline,
-  firestoreReady,
-  timestamp: new Date().toISOString()
-});
