@@ -283,7 +283,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
                 />
               )}
               
-              {/* ✅ FIXED: AdminCashflow props - removed cashflow prop */}
+              {/* ✅ FIXED: AdminCashflow - removed cashflow prop */}
               {activeTab === 'cashflow' && (
                 <AdminCashflow 
                   showToast={showToast}
@@ -307,7 +307,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
                 />
               )}
               
-              {/* ✅ FIXED: AdminBroadcasts props - removed extra props */}
+              {/* ✅ FIXED: AdminBroadcasts - removed broadcasts prop */}
               {activeTab === 'broadcasts' && (
                 <AdminBroadcasts 
                   showToast={showToast}
