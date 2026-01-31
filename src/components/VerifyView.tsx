@@ -1,13 +1,20 @@
 // src/components/VerifyView.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { AppState, User, Platform, SubmissionStatus, Campaign } from '../types';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { collection, addDoc, updateDoc, doc, increment, serverTimestamp } from 'firebase/firestore';
+import { 
+  collection, 
+  addDoc, 
+  updateDoc, 
+  doc, 
+  increment, 
+  serverTimestamp,
+  getDoc
+} from 'firebase/firestore';
 import { db } from '../firebase';
-// Remove ICONS import - we'll use fallback icons
-// import { ICONS } from '../constants';
+import { getAuth } from 'firebase/auth';
 
-// ✅ Define fallback icons directly in this file
+// Fallback icons
 const FALLBACK_ICONS = {
   Check: () => <span className="text-black">✓</span>,
   Instagram: () => <span>📷</span>,
@@ -42,7 +49,6 @@ const VerifyView: React.FC<VerifyViewProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState('');
 
-  // Use userCampaigns instead of appState.campaigns
   const activeCampaigns = userCampaigns.filter(c => c.active);
 
   const toggleCampaign = (id: string) => {
@@ -51,7 +57,6 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     );
   };
 
-  // Helper function for URL cleaning
   const cleanUsername = (username: string) => {
     return username.replace('@', '').trim().toLowerCase();
   };
@@ -67,9 +72,18 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     }
 
     setIsAnalyzing(true);
-    setAnalysisStep("PROCESSING SUBMISSION...");
+    setAnalysisStep("CHECKING PERMISSIONS...");
 
     try {
+      const auth = getAuth();
+      const firebaseUser = auth.currentUser;
+      
+      if (!firebaseUser) {
+        showToast('Please login again', 'error');
+        setIsAnalyzing(false);
+        return;
+      }
+
       const cleanHandle = cleanUsername(handleInput);
       const successfulSubmissions = [];
 
@@ -77,44 +91,77 @@ const VerifyView: React.FC<VerifyViewProps> = ({
         const campaign = activeCampaigns.find(c => c.id === cid);
         if (!campaign) continue;
 
-        setAnalysisStep(`PROCESSING: ${campaign.title.toUpperCase()}...`);
+        setAnalysisStep(`SUBMITTING: ${campaign.title.toUpperCase()}...`);
 
-        // ✅ Direct submission without AI verification
-        const submissionRef = await addDoc(collection(db, 'submissions'), {
-          userId: currentUser.id,
-          username: currentUser.username,
-          socialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
-          campaignId: cid,
-          campaignTitle: campaign.title,
-          platform,
-          status: SubmissionStatus.PENDING,
-          timestamp: Date.now(),
-          rewardAmount: campaign.basicPay,
-          externalLink: links[cid],
-          isViralBonus: false,
-          aiVerificationResponse: "MANUAL_REVIEW_REQUIRED",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
+        try {
+          // ✅ Step 1: Get current user document first
+          const userDocRef = doc(db, 'users', currentUser.id);
+          const userDoc = await getDoc(userDocRef);
+          
+          if (!userDoc.exists()) {
+            throw new Error('User document not found');
+          }
 
-        // ✅ Update user's pending balance
-        await updateDoc(doc(db, 'users', currentUser.id), {
-          pendingBalance: increment(campaign.basicPay),
-          savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
-          updatedAt: serverTimestamp()
-        });
+          const userData = userDoc.data();
+          
+          // ✅ Step 2: Create submission with all required fields
+          const submissionData = {
+            userId: currentUser.id,
+            username: currentUser.username,
+            email: currentUser.email || firebaseUser.email || '',
+            socialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
+            campaignId: cid,
+            campaignTitle: campaign.title,
+            platform,
+            status: SubmissionStatus.PENDING,
+            timestamp: Date.now(),
+            rewardAmount: campaign.basicPay,
+            externalLink: links[cid],
+            isViralBonus: false,
+            aiVerificationResponse: "MANUAL_REVIEW_REQUIRED",
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            authUid: firebaseUser.uid
+          };
 
-        successfulSubmissions.push({
-          id: submissionRef.id,
-          campaignTitle: campaign.title,
-          amount: campaign.basicPay
-        });
+          const submissionRef = await addDoc(collection(db, 'submissions'), submissionData);
+
+          // ✅ Step 3: Update user with ONLY allowed fields
+          // Rules के according: user can update pendingBalance
+          await updateDoc(userDocRef, {
+            pendingBalance: increment(campaign.basicPay),
+            savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
+            updatedAt: serverTimestamp(),
+            lastSubmissionAt: serverTimestamp()
+            // ✅ IMPORTANT: Don't change role, status, etc. as rules restrict
+          });
+
+          successfulSubmissions.push({
+            id: submissionRef.id,
+            campaignTitle: campaign.title,
+            amount: campaign.basicPay
+          });
+
+        } catch (firestoreError: any) {
+          console.error("Firestore Error:", {
+            code: firestoreError.code,
+            message: firestoreError.message,
+            campaign: campaign.title
+          });
+          
+          // Show specific error messages
+          if (firestoreError.code === 'permission-denied') {
+            showToast(`Permission denied for ${campaign.title}. Please check rules.`, 'error');
+          } else {
+            showToast(`Failed to submit ${campaign.title}: ${firestoreError.message}`, 'error');
+          }
+          
+          setIsAnalyzing(false);
+          return; // Stop on first error
+        }
       }
 
       if (successfulSubmissions.length > 0) {
-        setAnalysisStep("UPDATING BALANCE...");
-        
-        // Calculate total payout
         const totalPayout = successfulSubmissions.reduce((acc, s) => acc + s.amount, 0);
         
         // Update local state
@@ -131,7 +178,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
           ),
         }));
 
-        showToast(`✅ ${successfulSubmissions.length} submission(s) queued! ₹${totalPayout} added to pending`, 'success');
+        showToast(`✅ ${successfulSubmissions.length} submission(s) successfully submitted! ₹${totalPayout} added to pending`, 'success');
         
         // Reset form
         setSelectedVerifyCampaigns([]);
@@ -146,6 +193,35 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     }
   };
 
+  // Debug function to test Firestore connection
+  const testFirestoreConnection = async () => {
+    try {
+      const auth = getAuth();
+      const user = auth.currentUser;
+      
+      if (!user) {
+        showToast('Not logged in', 'error');
+        return;
+      }
+
+      showToast('Testing connection...', 'success');
+      
+      // Test write to submissions
+      const testDoc = await addDoc(collection(db, '_test'), {
+        test: 'connection',
+        timestamp: serverTimestamp(),
+        uid: user.uid
+      });
+      
+      showToast('✅ Firestore connection successful!', 'success');
+      
+      // Clean up
+      // Note: You might not have delete permission in rules
+    } catch (error: any) {
+      showToast(`Connection failed: ${error.message}`, 'error');
+    }
+  };
+
   return (
     <div className="space-y-10 pb-40 animate-slide">
       {isAnalyzing && (
@@ -155,7 +231,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
             {analysisStep}
           </p>
           <p className="text-[10px] text-slate-500 mt-4 uppercase font-black">
-            Please wait...
+            Processing your submission...
           </p>
         </div>
       )}
@@ -167,14 +243,14 @@ const VerifyView: React.FC<VerifyViewProps> = ({
         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">
           Submit Your Reels
         </p>
-        <div className="mt-2 p-2 bg-amber-500/20 border border-amber-500/30 rounded-lg mx-4">
-          <p className="text-[10px] text-amber-400 font-bold">
-            ⚡ Manual Review Mode
-          </p>
-          <p className="text-[8px] text-amber-300 mt-1">
-            Submissions will be manually reviewed by admin
-          </p>
-        </div>
+        
+        {/* Connection Test Button */}
+        <button
+          onClick={testFirestoreConnection}
+          className="mt-4 mx-auto px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-black text-xs font-bold rounded-xl flex items-center gap-2 hover:opacity-90"
+        >
+          <span>🔧</span> Test Firestore Connection
+        </button>
       </div>
 
       {/* Campaign Selection */}
@@ -207,16 +283,11 @@ const VerifyView: React.FC<VerifyViewProps> = ({
                   <span className="text-[10px] text-cyan-400 font-bold">
                     ₹{campaign.basicPay}
                   </span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[8px] text-slate-400 bg-black/50 px-2 py-1 rounded">
-                      {campaign.audioName?.substring(0, 10) || 'Audio'}...
-                    </span>
-                    {selectedVerifyCampaigns.includes(campaign.id) && (
-                      <div className="w-5 h-5 bg-cyan-500 rounded-full flex items-center justify-center">
-                        <FALLBACK_ICONS.Check />
-                      </div>
-                    )}
-                  </div>
+                  {selectedVerifyCampaigns.includes(campaign.id) && (
+                    <div className="w-5 h-5 bg-cyan-500 rounded-full flex items-center justify-center">
+                      <FALLBACK_ICONS.Check />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -295,7 +366,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
                       <div className="flex justify-between items-center mt-1">
                         <p className="text-[10px] text-cyan-400">₹{campaign?.basicPay}</p>
                         <p className="text-[8px] text-slate-500 bg-black/30 px-2 py-1 rounded">
-                          {campaign?.audioName?.substring(0, 15) || 'Required Audio'}...
+                          Audio: {campaign?.audioName?.substring(0, 12) || 'Required'}...
                         </p>
                       </div>
                     </div>
@@ -306,9 +377,8 @@ const VerifyView: React.FC<VerifyViewProps> = ({
                     value={links[cid] || ''}
                     onChange={e => setLinks({ ...links, [cid]: e.target.value })}
                   />
-                  <div className="flex items-center gap-2 text-[9px] text-slate-500">
-                    <FALLBACK_ICONS.Info />
-                    <span>URL must contain: <span className="text-cyan-400">@{handleInput || 'yourusername'}</span></span>
+                  <div className="text-[9px] text-slate-500">
+                    <span className="text-cyan-400">Note:</span> URL should contain @{handleInput || 'yourusername'}
                   </div>
                 </div>
               );
@@ -323,13 +393,13 @@ const VerifyView: React.FC<VerifyViewProps> = ({
           className={`w-full py-7 rounded-[40px] font-black uppercase tracking-[0.4em] text-lg shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3 ${
             selectedVerifyCampaigns.length === 0 
               ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
-              : 'bg-cyan-500 text-black hover:bg-cyan-400'
+              : 'bg-gradient-to-r from-cyan-500 to-blue-500 text-black hover:opacity-90'
           }`}
         >
           {isAnalyzing ? (
             <>
               <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-              PROCESSING...
+              SUBMITTING...
             </>
           ) : (
             <>
@@ -339,67 +409,44 @@ const VerifyView: React.FC<VerifyViewProps> = ({
           )}
         </button>
 
-        {/* Selected campaigns summary */}
-        {selectedVerifyCampaigns.length > 0 && (
-          <div className="p-4 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-2xl">
-            <div className="flex justify-between items-center mb-3">
-              <div>
-                <p className="text-xs font-black text-cyan-400">
-                  {selectedVerifyCampaigns.length} Mission{selectedVerifyCampaigns.length > 1 ? 's' : ''} Selected
-                </p>
-                <p className="text-[10px] text-slate-400">
-                  {platform === Platform.INSTAGRAM ? 'Instagram Reels' : 'Facebook Reels'}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-lg font-black text-white">
+        {/* Status Panel */}
+        <div className="p-4 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-2xl">
+          <p className="text-xs font-black text-white mb-2">Submission Info</p>
+          <div className="text-[10px] text-slate-300 space-y-1">
+            <div className="flex justify-between">
+              <span>Selected Missions:</span>
+              <span className="text-cyan-400">{selectedVerifyCampaigns.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Platform:</span>
+              <span className="text-cyan-400">{platform === Platform.INSTAGRAM ? 'Instagram' : 'Facebook'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Username:</span>
+              <span className="text-cyan-400">@{handleInput || 'none'}</span>
+            </div>
+            {selectedVerifyCampaigns.length > 0 && (
+              <div className="flex justify-between mt-2 pt-2 border-t border-white/10">
+                <span className="font-bold">Total Payout:</span>
+                <span className="text-lg font-black text-white">
                   ₹{selectedVerifyCampaigns.reduce((sum, cid) => {
                     const campaign = activeCampaigns.find(c => c.id === cid);
                     return sum + (campaign?.basicPay || 0);
                   }, 0)}
-                </p>
-                <p className="text-[10px] text-slate-400">Total Payout</p>
+                </span>
               </div>
-            </div>
-            
-            <div className="mt-3 p-2 bg-amber-500/20 rounded-lg border border-amber-500/30">
-              <p className="text-[10px] text-amber-400 font-bold text-center">
-                ⚡ Manual Review Mode
-              </p>
-              <p className="text-[8px] text-amber-300 text-center mt-1">
-                Admin will review your submission within 24 hours
-              </p>
-            </div>
+            )}
           </div>
-        )}
+        </div>
 
-        {/* Instructions */}
-        <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-          <p className="text-xs font-black text-white mb-2 flex items-center gap-2">
-            <FALLBACK_ICONS.Info />
-            Submission Guidelines
-          </p>
+        {/* Rules Info */}
+        <div className="p-4 bg-black/30 border border-white/10 rounded-2xl">
+          <p className="text-xs font-black text-amber-400 mb-2">Firestore Rules Active</p>
           <ul className="text-[10px] text-slate-400 space-y-1">
-            <li className="flex items-start gap-2">
-              <span className="text-cyan-400">✓</span>
-              <span>Use exact audio mentioned in mission details</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-cyan-400">✓</span>
-              <span>Include required keywords in caption</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-cyan-400">✓</span>
-              <span>Reel must be vertical (9:16)</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-cyan-400">✓</span>
-              <span>URL must contain your username</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-amber-400">⚠</span>
-              <span>Payment after admin approval (24-48 hours)</span>
-            </li>
+            <li>✓ User authentication required</li>
+            <li>✓ Can create submissions</li>
+            <li>✓ Can update pending balance</li>
+            <li>✓ Admin review required</li>
           </ul>
         </div>
       </div>
