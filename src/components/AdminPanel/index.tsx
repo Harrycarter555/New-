@@ -119,13 +119,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
         if (snapshot.exists()) {
           const cashflowData = snapshot.data();
           console.log('💰 Cashflow updated:', cashflowData);
+          
+          // ✅ SAFE PARSING
+          const dailyLimit = parseFloat(cashflowData.dailyLimit) || 
+                           parseFloat(cashflowData.daily_limit) || 100000;
+          const todaySpent = parseFloat(cashflowData.todaySpent) || 
+                           parseFloat(cashflowData.today_spent) || 0;
+          
           setData(prev => ({
             ...prev,
             cashflow: {
-              dailyLimit: cashflowData.dailyLimit || 100000,
-              todaySpent: cashflowData.todaySpent || 0,
-              startDate: cashflowData.startDate || '',
-              endDate: cashflowData.endDate || ''
+              dailyLimit: Number.isNaN(dailyLimit) ? 100000 : dailyLimit,
+              todaySpent: Number.isNaN(todaySpent) ? 0 : todaySpent,
+              startDate: cashflowData.startDate || cashflowData.start_date || '',
+              endDate: cashflowData.endDate || cashflowData.end_date || ''
             }
           }));
         }
@@ -276,9 +283,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
                 />
               )}
               
+              {/* ✅ FIXED: AdminCashflow props - removed cashflow prop */}
               {activeTab === 'cashflow' && (
                 <AdminCashflow 
-                  cashflow={data.cashflow} 
                   showToast={showToast}
                 />
               )}
@@ -300,9 +307,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, showToast }) => {
                 />
               )}
               
+              {/* ✅ FIXED: AdminBroadcasts props - removed extra props */}
               {activeTab === 'broadcasts' && (
                 <AdminBroadcasts 
-                  broadcasts={data.broadcasts} 
                   showToast={showToast}
                   currentUser={currentUser}
                   users={data.users}
