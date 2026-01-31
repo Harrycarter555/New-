@@ -84,6 +84,17 @@ const VerifyView: React.FC<VerifyViewProps> = ({
         return;
       }
 
+      // ✅ CRITICAL: Ensure currentUser.id matches Firebase Auth UID
+      if (currentUser.id !== firebaseUser.uid) {
+        showToast('User ID mismatch. Please relogin.', 'error');
+        console.error('User ID mismatch:', {
+          currentUserId: currentUser.id,
+          firebaseUid: firebaseUser.uid
+        });
+        setIsAnalyzing(false);
+        return;
+      }
+
       const cleanHandle = cleanUsername(handleInput);
       const successfulSubmissions = [];
 
@@ -94,20 +105,24 @@ const VerifyView: React.FC<VerifyViewProps> = ({
         setAnalysisStep(`SUBMITTING: ${campaign.title.toUpperCase()}...`);
 
         try {
-          // ✅ Step 1: Get current user document first
+          // ✅ Step 1: Get current user document
           const userDocRef = doc(db, 'users', currentUser.id);
           const userDoc = await getDoc(userDocRef);
           
           if (!userDoc.exists()) {
-            throw new Error('User document not found');
+            throw new Error('User document not found in Firestore');
           }
 
           const userData = userDoc.data();
           
-          // ✅ Step 2: Create submission with all required fields
+          // ✅ Step 2: Calculate new pending balance
+          const currentPendingBalance = userData.pendingBalance || 0;
+          const newPendingBalance = currentPendingBalance + campaign.basicPay;
+          
+          // ✅ Step 3: Create submission with EXACT fields matching rules
           const submissionData = {
-            userId: currentUser.id,
-            username: currentUser.username,
+            userId: currentUser.id, // Must match auth.uid
+            username: currentUser.username || '',
             email: currentUser.email || firebaseUser.email || '',
             socialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
             campaignId: cid,
@@ -120,21 +135,33 @@ const VerifyView: React.FC<VerifyViewProps> = ({
             isViralBonus: false,
             aiVerificationResponse: "MANUAL_REVIEW_REQUIRED",
             createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            authUid: firebaseUser.uid
+            updatedAt: serverTimestamp()
+            // Note: DO NOT add authUid field - rules check request.auth.uid directly
           };
 
+          console.log('Creating submission with data:', {
+            userId: submissionData.userId,
+            authUid: firebaseUser.uid,
+            match: submissionData.userId === firebaseUser.uid
+          });
+
+          // ✅ Create submission (rules check: request.auth.uid == request.resource.data.userId)
           const submissionRef = await addDoc(collection(db, 'submissions'), submissionData);
 
-          // ✅ Step 3: Update user with ONLY allowed fields
-          // Rules के according: user can update pendingBalance
+          // ✅ Step 4: Update user - ONLY pendingBalance (rules allow this)
+          // Important: Update ONLY one field at a time as per your rules
           await updateDoc(userDocRef, {
-            pendingBalance: increment(campaign.basicPay),
-            savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
-            updatedAt: serverTimestamp(),
-            lastSubmissionAt: serverTimestamp()
-            // ✅ IMPORTANT: Don't change role, status, etc. as rules restrict
+            pendingBalance: newPendingBalance
           });
+
+          // ✅ Step 5: Update savedSocialUsername in separate update (rules allow in profile update)
+          // Check if username changed
+          const newSocialUsername = `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`;
+          if (userData.savedSocialUsername !== newSocialUsername) {
+            await updateDoc(userDocRef, {
+              savedSocialUsername: newSocialUsername
+            });
+          }
 
           successfulSubmissions.push({
             id: submissionRef.id,
@@ -142,22 +169,28 @@ const VerifyView: React.FC<VerifyViewProps> = ({
             amount: campaign.basicPay
           });
 
+          console.log(`✅ Successfully submitted: ${campaign.title}`);
+
         } catch (firestoreError: any) {
-          console.error("Firestore Error:", {
+          console.error("Firestore Error Details:", {
             code: firestoreError.code,
             message: firestoreError.message,
-            campaign: campaign.title
+            campaign: campaign.title,
+            userId: currentUser.id,
+            firebaseUid: firebaseUser.uid
           });
           
-          // Show specific error messages
+          // Specific error messages
           if (firestoreError.code === 'permission-denied') {
-            showToast(`Permission denied for ${campaign.title}. Please check rules.`, 'error');
+            showToast(`Permission denied. Check: 1) User ID match, 2) Rules configuration`, 'error');
+          } else if (firestoreError.code === 'failed-precondition') {
+            showToast(`Rules validation failed. Please contact admin.`, 'error');
           } else {
-            showToast(`Failed to submit ${campaign.title}: ${firestoreError.message}`, 'error');
+            showToast(`Submission failed: ${firestoreError.message}`, 'error');
           }
           
           setIsAnalyzing(false);
-          return; // Stop on first error
+          return;
         }
       }
 
@@ -178,7 +211,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
           ),
         }));
 
-        showToast(`✅ ${successfulSubmissions.length} submission(s) successfully submitted! ₹${totalPayout} added to pending`, 'success');
+        showToast(`✅ ${successfulSubmissions.length} submission(s) successful! ₹${totalPayout} pending`, 'success');
         
         // Reset form
         setSelectedVerifyCampaigns([]);
@@ -193,33 +226,17 @@ const VerifyView: React.FC<VerifyViewProps> = ({
     }
   };
 
-  // Debug function to test Firestore connection
-  const testFirestoreConnection = async () => {
-    try {
-      const auth = getAuth();
-      const user = auth.currentUser;
-      
-      if (!user) {
-        showToast('Not logged in', 'error');
-        return;
-      }
-
-      showToast('Testing connection...', 'success');
-      
-      // Test write to submissions
-      const testDoc = await addDoc(collection(db, '_test'), {
-        test: 'connection',
-        timestamp: serverTimestamp(),
-        uid: user.uid
-      });
-      
-      showToast('✅ Firestore connection successful!', 'success');
-      
-      // Clean up
-      // Note: You might not have delete permission in rules
-    } catch (error: any) {
-      showToast(`Connection failed: ${error.message}`, 'error');
-    }
+  // Debug: View current user and auth state
+  const debugAuthState = async () => {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    
+    console.log('=== DEBUG AUTH STATE ===');
+    console.log('Firebase Auth User:', user);
+    console.log('Current User from props:', currentUser);
+    console.log('Match:', currentUser.id === user?.uid);
+    
+    showToast(`Auth: ${user?.uid}, User: ${currentUser.id}`, 'success');
   };
 
   return (
@@ -244,13 +261,24 @@ const VerifyView: React.FC<VerifyViewProps> = ({
           Submit Your Reels
         </p>
         
-        {/* Connection Test Button */}
+        {/* Debug Button */}
         <button
-          onClick={testFirestoreConnection}
-          className="mt-4 mx-auto px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-black text-xs font-bold rounded-xl flex items-center gap-2 hover:opacity-90"
+          onClick={debugAuthState}
+          className="mt-4 mx-auto px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-black text-xs font-bold rounded-xl flex items-center gap-2 hover:opacity-90"
         >
-          <span>🔧</span> Test Firestore Connection
+          <span>🐛</span> Debug Auth State
         </button>
+      </div>
+
+      {/* Important Notice */}
+      <div className="mx-4 p-4 bg-gradient-to-r from-amber-500/20 to-red-500/20 border border-amber-500/30 rounded-xl">
+        <p className="text-xs font-black text-amber-400 mb-2">IMPORTANT: User ID Check</p>
+        <p className="text-[10px] text-amber-300">
+          Your Firestore User ID must match Firebase Auth UID. Check console after clicking Debug button.
+        </p>
+        <div className="mt-2 text-[8px] text-slate-400">
+          <p>Rules require: request.auth.uid == request.resource.data.userId</p>
+        </div>
       </div>
 
       {/* Campaign Selection */}
@@ -411,7 +439,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
 
         {/* Status Panel */}
         <div className="p-4 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-2xl">
-          <p className="text-xs font-black text-white mb-2">Submission Info</p>
+          <p className="text-xs font-black text-white mb-2">Submission Status</p>
           <div className="text-[10px] text-slate-300 space-y-1">
             <div className="flex justify-between">
               <span>Selected Missions:</span>
@@ -424,6 +452,10 @@ const VerifyView: React.FC<VerifyViewProps> = ({
             <div className="flex justify-between">
               <span>Username:</span>
               <span className="text-cyan-400">@{handleInput || 'none'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Auth Status:</span>
+              <span className="text-green-400">Logged In</span>
             </div>
             {selectedVerifyCampaigns.length > 0 && (
               <div className="flex justify-between mt-2 pt-2 border-t border-white/10">
@@ -443,10 +475,10 @@ const VerifyView: React.FC<VerifyViewProps> = ({
         <div className="p-4 bg-black/30 border border-white/10 rounded-2xl">
           <p className="text-xs font-black text-amber-400 mb-2">Firestore Rules Active</p>
           <ul className="text-[10px] text-slate-400 space-y-1">
-            <li>✓ User authentication required</li>
-            <li>✓ Can create submissions</li>
-            <li>✓ Can update pending balance</li>
-            <li>✓ Admin review required</li>
+            <li>✓ User must be authenticated</li>
+            <li>✓ submission.userId must equal auth.uid</li>
+            <li>✓ Can only update pendingBalance field</li>
+            <li>✓ Separate update for profile changes</li>
           </ul>
         </div>
       </div>
