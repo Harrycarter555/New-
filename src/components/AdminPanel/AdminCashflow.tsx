@@ -17,37 +17,96 @@ const AdminCashflow: React.FC<AdminCashflowProps> = ({ showToast }) => {
   const [newLimit, setNewLimit] = useState('');
   const [updating, setUpdating] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // ✅ REAL-TIME CASHFLOW LISTENER
+  // ✅ REAL-TIME CASHFLOW LISTENER WITH SAFE PARSING
   useEffect(() => {
     const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
     
+    console.log('🔍 Setting up cashflow listener...');
+    
     const unsubscribe = onSnapshot(cashflowRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const updatedCashflow = {
-          dailyLimit: data.dailyLimit ,
-          todaySpent: data.todaySpent ,
-          startDate: data.startDate || new Date().toISOString().split('T')[0],
-          endDate: data.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-        };
-        
-        console.log('💰 Cashflow updated in real-time:', updatedCashflow);
-        setCashflow(updatedCashflow);
-      } else {
-        // Create default cashflow document if doesn't exist
-        createDefaultCashflow();
+      try {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          console.log('📥 Raw cashflow data:', data);
+          
+          // ✅ SAFE NUMBER PARSING
+          const dailyLimit = parseFloat(data.dailyLimit) || parseFloat(data.daily_limit) || 100000;
+          const todaySpent = parseFloat(data.todaySpent) || parseFloat(data.today_spent) || 0;
+          
+          const updatedCashflow = {
+            dailyLimit: Number.isNaN(dailyLimit) ? 100000 : dailyLimit,
+            todaySpent: Number.isNaN(todaySpent) ? 0 : todaySpent,
+            startDate: data.startDate || data.start_date || getDefaultStartDate(),
+            endDate: data.endDate || data.end_date || getDefaultEndDate()
+          };
+          
+          console.log('✅ Parsed cashflow:', updatedCashflow);
+          setCashflow(updatedCashflow);
+        } else {
+          console.log('📝 Cashflow document not found, creating default...');
+          createDefaultCashflow();
+        }
+      } catch (error) {
+        console.error('❌ Error processing cashflow data:', error);
+        setCashflow({
+          dailyLimit: 100000,
+          todaySpent: 0,
+          startDate: getDefaultStartDate(),
+          endDate: getDefaultEndDate()
+        });
+      } finally {
+        setLoading(false);
       }
     }, (error) => {
-      console.error('Cashflow listener error:', error);
+      console.error('🔥 Cashflow listener error:', error);
+      showToast('Failed to load cashflow data', 'error');
+      setLoading(false);
     });
+
+    // Initial fetch
+    const fetchInitial = async () => {
+      try {
+        const cashflowDoc = await getDoc(cashflowRef);
+        if (cashflowDoc.exists()) {
+          const data = cashflowDoc.data();
+          const updatedCashflow = {
+            dailyLimit: parseFloat(data.dailyLimit) || parseFloat(data.daily_limit) || 100000,
+            todaySpent: parseFloat(data.todaySpent) || parseFloat(data.today_spent) || 0,
+            startDate: data.startDate || data.start_date || getDefaultStartDate(),
+            endDate: data.endDate || data.end_date || getDefaultEndDate()
+          };
+          setCashflow(updatedCashflow);
+        }
+      } catch (error) {
+        console.error('Error fetching initial cashflow:', error);
+      }
+    };
+
+    fetchInitial();
 
     return unsubscribe;
   }, []);
 
+  // ✅ HELPER FUNCTIONS
+  const getDefaultStartDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
+  const getDefaultEndDate = () => {
+    const today = new Date();
+    const endDate = new Date(today);
+    endDate.setFullYear(today.getFullYear() + 1);
+    return endDate.toISOString().split('T')[0];
+  };
+
   // ✅ CREATE DEFAULT CASHFLOW DOCUMENT
   const createDefaultCashflow = async () => {
     try {
+      console.log('🔄 Creating default cashflow...');
+      
       const today = new Date();
       const endDate = new Date(today);
       endDate.setFullYear(today.getFullYear() + 1);
@@ -61,17 +120,25 @@ const AdminCashflow: React.FC<AdminCashflowProps> = ({ showToast }) => {
         updatedAt: serverTimestamp()
       };
 
-      await setDoc(doc(db, 'cashflow', 'daily-cashflow'), defaultCashflow);
+      const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
+      await setDoc(cashflowRef, defaultCashflow);
+      
+      console.log('✅ Default cashflow created');
       setCashflow(defaultCashflow);
-    } catch (error) {
-      console.error('Error creating cashflow document:', error);
+      showToast('Default cashflow settings created', 'success');
+    } catch (error: any) {
+      console.error('❌ Error creating cashflow document:', error);
+      showToast('Failed to create cashflow: ' + error.message, 'error');
     }
   };
 
-  // ✅ CALCULATE REMAINING & PERCENTAGE
-  const cashflowRemaining = Math.max(0, cashflow.dailyLimit - cashflow.todaySpent);
-  const spentPercentage = cashflow.dailyLimit > 0 
-    ? (cashflow.todaySpent / cashflow.dailyLimit) * 100 
+  // ✅ CALCULATE REMAINING & PERCENTAGE (WITH SAFETY)
+  const dailyLimitSafe = Number.isNaN(cashflow.dailyLimit) ? 100000 : cashflow.dailyLimit;
+  const todaySpentSafe = Number.isNaN(cashflow.todaySpent) ? 0 : cashflow.todaySpent;
+  
+  const cashflowRemaining = Math.max(0, dailyLimitSafe - todaySpentSafe);
+  const spentPercentage = dailyLimitSafe > 0 
+    ? (todaySpentSafe / dailyLimitSafe) * 100 
     : 0;
 
   // ✅ GET PROGRESS BAR COLOR
@@ -125,7 +192,7 @@ const AdminCashflow: React.FC<AdminCashflowProps> = ({ showToast }) => {
     }
   };
 
-  // ✅ CHECK PENDING PAYOUTS AGAINST NEW LIMIT
+  // ✅ CHECK PENDING PAYOUTS AGAINST NEW LIMIT - FIXED WARNING TYPE
   const checkPendingPayoutsAgainstLimit = async (newLimit: number) => {
     try {
       const payoutsRef = collection(db, 'payouts');
@@ -155,8 +222,8 @@ const AdminCashflow: React.FC<AdminCashflowProps> = ({ showToast }) => {
         await batch.commit();
         console.log(`💰 ${affectedCount} payouts put on hold due to limit change`);
         
-        // Show notification
-        showToast(`${affectedCount} pending payouts put on hold (exceed new limit)`, 'warning');
+        // ✅ FIXED: Changed from 'warning' to 'error'
+        showToast(`${affectedCount} pending payouts put on hold (exceed new limit)`, 'error');
       }
     } catch (error) {
       console.error('Error checking payouts against limit:', error);
@@ -209,6 +276,17 @@ const AdminCashflow: React.FC<AdminCashflowProps> = ({ showToast }) => {
       year: 'numeric'
     });
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-400">Loading cashflow data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-slide">
