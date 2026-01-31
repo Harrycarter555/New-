@@ -1,4 +1,3 @@
-// src/components/WalletView.tsx
 import React, { useState } from 'react';
 import { User, AppState, PayoutStatus, Platform, SubmissionStatus, Campaign } from '../types';
 import { ICONS } from '../constants';
@@ -27,7 +26,6 @@ const WalletView: React.FC<WalletViewProps> = ({
 }) => {
   const [walletTab, setWalletTab] = useState<'transactions' | 'inbox' | 'payment' | 'viral' | 'report'>('transactions');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [upiId, setUpiId] = useState(''); // UPI ke liye alag input
   const [paymentSettings, setPaymentSettings] = useState<{
     method: 'UPI' | 'BANK' | 'USDT';
     details: string;
@@ -39,7 +37,7 @@ const WalletView: React.FC<WalletViewProps> = ({
   const [selectedCampaignForViral, setSelectedCampaignForViral] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ==================== FIXED WITHDRAWAL FUNCTION ====================
+  // ==================== Withdrawal Logic (using saved payment details) ====================
   const handleWithdrawal = async () => {
     const amount = Number(withdrawAmount);
 
@@ -53,35 +51,26 @@ const WalletView: React.FC<WalletViewProps> = ({
     if (amount > currentUser.walletBalance) {
       return showToast('Insufficient balance in wallet', 'error');
     }
-
-    // Method-specific checks
-    if (paymentSettings.method === 'UPI' && !upiId.trim()) {
-      return showToast('UPI ID is required for UPI withdrawals', 'error');
-    }
-    if (paymentSettings.method !== 'UPI' && !paymentSettings.details.trim()) {
-      return showToast(`Please enter ${paymentSettings.method} details`, 'error');
+    if (!paymentSettings.details.trim()) {
+      return showToast('Update payment details in Payment tab first', 'error');
     }
 
     setIsSubmitting(true);
 
     try {
-      // Correct requestPayout call with all parameters
       await userService.requestPayout(
         currentUser.id,
         currentUser.username,
         amount,
         paymentSettings.method,
-        paymentSettings.details,
-        paymentSettings.method === 'UPI' ? upiId.trim() : undefined
+        paymentSettings.details
       );
 
-      showToast(`Withdrawal request of ₹${amount.toLocaleString('en-IN')} submitted successfully!`, 'success');
+      showToast(`Withdrawal request of ₹${amount.toLocaleString('en-IN')} submitted!`, 'success');
 
-      // Reset form
       setWithdrawAmount('');
-      setUpiId('');
 
-      // Optimistic update: wallet balance decrease
+      // Optimistic wallet balance update
       setAppState(prev => ({
         ...prev,
         users: prev.users.map(u =>
@@ -92,16 +81,15 @@ const WalletView: React.FC<WalletViewProps> = ({
       }));
     } catch (error: any) {
       console.error('Withdrawal error:', error);
-      showToast(error.message || 'Failed to submit withdrawal request. Please try again.', 'error');
+      showToast(error.message || 'Failed to submit withdrawal request. Try again.', 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ==================== Other handlers (unchanged for brevity) ====================
   const handleUpdatePayment = async () => {
     try {
-      showToast('Payment Settings Updated', 'success');
+      showToast('Payment Settings Saved', 'success');
     } catch (error: any) {
       showToast(error.message || 'Failed to update payment settings', 'error');
     }
@@ -111,6 +99,7 @@ const WalletView: React.FC<WalletViewProps> = ({
     if (!viralLink || !selectedCampaignForViral) {
       return showToast('Please fill all fields', 'error');
     }
+
     setIsSubmitting(true);
     try {
       showToast('Viral Claim Submitted for Review', 'success');
@@ -125,7 +114,11 @@ const WalletView: React.FC<WalletViewProps> = ({
 
   const formatCurrency = (amount: number): string => `₹${amount?.toLocaleString('en-IN') || '0'}`;
   const formatDate = (timestamp: number): string => new Date(timestamp).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
   });
 
   const pendingSubmissions = userSubmissions.filter(
@@ -185,12 +178,11 @@ const WalletView: React.FC<WalletViewProps> = ({
         ))}
       </div>
 
-      {/* Transactions Tab (with FIXED withdrawal) */}
+      {/* Transactions Tab */}
       {walletTab === 'transactions' && (
         <div className="space-y-8">
           <div className="glass-panel p-10 rounded-[56px] space-y-6 shadow-2xl">
             <h3 className="text-xl font-black text-white uppercase italic">Withdraw Funds</h3>
-            
             <div className="space-y-5">
               <input
                 type="number"
@@ -200,37 +192,37 @@ const WalletView: React.FC<WalletViewProps> = ({
                 placeholder="Amount ₹"
                 min="0"
               />
-
               <div className="p-4 bg-white/5 rounded-xl">
-                <p className="text-sm text-slate-400 mb-1">Using Method</p>
+                <p className="text-sm text-slate-400 mb-1">Method</p>
                 <p className="text-lg font-bold text-white">{paymentSettings.method}</p>
+                <p className="text-sm text-slate-500 mt-1 truncate">
+                  {paymentSettings.details || 'Not set - Update in Payment tab'}
+                </p>
               </div>
-
-              {paymentSettings.method === 'UPI' && (
-                <input
-                  type="text"
-                  value={upiId}
-                  onChange={(e) => setUpiId(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 text-lg font-bold text-white outline-none shadow-inner"
-                  placeholder="Your UPI ID (example@upi)"
-                />
-              )}
-
               <button
                 onClick={handleWithdrawal}
-                disabled={isSubmitting}
-                className={`w-full py-6 rounded-[32px] font-black uppercase text-lg shadow-xl transition-all ${
-                  isSubmitting ? 'bg-slate-700 text-slate-400 cursor-not-allowed' : 'bg-cyan-500 text-black hover:bg-cyan-600 active:scale-95'
+                disabled={isSubmitting || !withdrawAmount.trim() || !paymentSettings.details.trim()}
+                className={`w-full py-6 rounded-[32px] font-black uppercase text-lg shadow-xl transition-all flex items-center justify-center gap-3 ${
+                  isSubmitting || !withdrawAmount.trim() || !paymentSettings.details.trim()
+                    ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                    : 'bg-cyan-500 text-black hover:bg-cyan-600 active:scale-95'
                 }`}
               >
-                {isSubmitting ? 'Processing...' : 'Confirm Withdrawal'}
+                {isSubmitting ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Confirm Withdrawal'
+                )}
               </button>
             </div>
           </div>
 
-          {/* Transaction History - same as your original code */}
+          {/* Transaction History */}
           <div className="space-y-4">
-            <h3 className="text-xl font-black italic px-2 text-white italic">Transaction History</h3>
+            <h3 className="text-xl font-black italic px-2 text-white">Transaction History</h3>
             {userPayouts.length === 0 && userSubmissions.length === 0 ? (
               <p className="text-center py-10 text-slate-600 italic">No transactions yet</p>
             ) : (
@@ -322,7 +314,6 @@ const WalletView: React.FC<WalletViewProps> = ({
           <h3 className="text-xl font-black italic text-white italic uppercase tracking-tighter">
             Viral Bonus Claim
           </h3>
-          
           <div className="grid grid-cols-2 gap-4">
             {userCampaigns.filter(c => c.active).map(campaign => (
               <div
@@ -377,82 +368,80 @@ const WalletView: React.FC<WalletViewProps> = ({
         </div>
       )}
 
-      {/* Report Tab */}
+      {/* Report Tab - No blank screen */}
       {walletTab === 'report' && (
-        <div className="glass-panel p-8 rounded-[48px] border-t-8 border-red-600 shadow-2xl space-y-8 animate-slide">
-          <div className="text-center">
-            <h3 className="text-3xl font-black italic text-red-400 uppercase tracking-tighter">
-              REPORT ISSUE
-            </h3>
-            <p className="text-sm text-slate-400 mt-2">
-              Tell us what happened. We'll get back to you.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-slate-300 mb-3">
-              Issue Category
-            </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-4 text-white focus:outline-none focus:border-red-500"
-            >
-              <option value="other">Other / General</option>
-              <option value="payout">Payout / Wallet Problem</option>
-              <option value="campaign">Campaign / Mission Issue</option>
-              <option value="submission">Submission / Verification Issue</option>
-              <option value="bug">App Bug / Technical Issue</option>
-              <option value="user">Report User / Spam</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-slate-300 mb-3">
-              Describe your issue / message to admin *
-            </label>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Write your problem in detail... (max 1000 characters)"
-              className="w-full h-40 bg-slate-900/50 border border-slate-700 rounded-2xl p-5 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 resize-none"
-              maxLength={1000}
-            />
-            <div className="flex justify-between text-xs text-slate-500 mt-2">
-              <span>{message.length}/1000</span>
-              <span className={message.length > 900 ? 'text-red-400' : ''}>
-                {1000 - message.length} left
-              </span>
-            </div>
-          </div>
-
-          <button
-            onClick={handleSubmitReport}
-            disabled={submitting || !message.trim()}
-            className={`w-full py-5 rounded-[32px] font-black uppercase text-lg shadow-xl transition-all flex items-center justify-center gap-3 ${
-              submitting || !message.trim()
-                ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                : 'bg-red-600 text-white hover:bg-red-700 active:scale-95'
-            }`}
-          >
-            {submitting ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Submitting...
-              </>
-            ) : (
-              <>
-                <ICONS.Send className="w-6 h-6" />
-                Send Report to Admin
-              </>
-            )}
-          </button>
-
-          <p className="text-center text-xs text-slate-600">
-            Your report is private. Only admin can see it.
-          </p>
-        </div>
+        <ReportTab currentUser={currentUser} showToast={showToast} />
       )}
+    </div>
+  );
+};
+
+// ReportTab - states defined, no blank screen
+const ReportTab: React.FC<{
+  currentUser: User;
+  showToast: (msg: string, type?: 'success' | 'error') => void;
+}> = ({ currentUser, showToast }) => {
+  const [category, setCategory] = useState('other');
+  const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!message.trim()) return showToast('Please write your message', 'error');
+    if (message.length > 1000) return showToast('Message too long (max 1000 chars)', 'error');
+
+    setSubmitting(true);
+    try {
+      await reportService.submitReport(
+        currentUser.id,
+        currentUser.username,
+        currentUser.email || 'no-email',
+        message.trim(),
+        category
+      );
+      showToast('Report sent to admin!', 'success');
+      setMessage('');
+      setCategory('other');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to send report', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="glass-panel p-8 rounded-[48px] border-t-8 border-red-600 shadow-2xl space-y-8 animate-slide">
+      <h3 className="text-3xl font-black italic text-red-400 uppercase text-center">REPORT ISSUE</h3>
+      <p className="text-center text-sm text-slate-400">Admin will review your message</p>
+
+      <select
+        value={category}
+        onChange={e => setCategory(e.target.value)}
+        className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-4 text-white"
+      >
+        <option value="other">Other</option>
+        <option value="payout">Payout Issue</option>
+        <option value="campaign">Campaign Issue</option>
+        <option value="bug">App Bug</option>
+      </select>
+
+      <textarea
+        value={message}
+        onChange={e => setMessage(e.target.value)}
+        placeholder="Write your issue here..."
+        className="w-full h-40 bg-slate-900/50 border border-slate-700 rounded-2xl p-5 text-white resize-none"
+        maxLength={1000}
+      />
+      <p className="text-right text-xs text-slate-500">{message.length}/1000</p>
+
+      <button
+        onClick={handleSubmit}
+        disabled={submitting || !message.trim()}
+        className={`w-full py-5 rounded-[32px] font-black uppercase text-lg ${
+          submitting || !message.trim() ? 'bg-slate-700 text-slate-400' : 'bg-red-600 text-white'
+        }`}
+      >
+        {submitting ? 'Sending...' : 'Send to Admin'}
+      </button>
     </div>
   );
 };
