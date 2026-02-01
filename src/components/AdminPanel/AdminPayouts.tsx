@@ -29,15 +29,22 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
   const [holdNote, setHoldNote] = useState<string>('');
   const [cashflow, setCashflow] = useState({ dailyLimit: 100000, todaySpent: 0 });
 
-  // ✅ REAL-TIME CASHFLOW LISTENER
+  // ✅ REAL-TIME CASHFLOW LISTENER WITH SAFE PARSING
   useEffect(() => {
     const cashflowRef = doc(db, 'cashflow', 'daily-cashflow');
     const unsubscribe = onSnapshot(cashflowRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setCashflow({
-          dailyLimit: data.dailyLimit || 100000,
-          todaySpent: data.todaySpent || 0
+          dailyLimit: Number(data.dailyLimit) || 100000,
+          todaySpent: Number(data.todaySpent) || 0
+        });
+      } else {
+        // Create default if doesn't exist
+        setDoc(cashflowRef, {
+          dailyLimit: 100000,
+          todaySpent: 0,
+          createdAt: serverTimestamp()
         });
       }
     });
@@ -65,7 +72,9 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
     
     if (cashflowSnap.exists()) {
       const cashflowData = cashflowSnap.data();
-      const remaining = cashflowData.dailyLimit - cashflowData.todaySpent;
+      const dailyLimit = Number(cashflowData.dailyLimit) || 100000;
+      const todaySpent = Number(cashflowData.todaySpent) || 0;
+      const remaining = Math.max(0, dailyLimit - todaySpent);
       const allowed = amount <= remaining;
       
       return {
@@ -80,6 +89,39 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
     return { allowed: true, remaining: 100000, message: 'Cashflow data not found' };
   };
 
+  // ✅ SEND NOTIFICATION TO USER
+  const sendNotification = async (userId: string, type: string, data: any) => {
+    try {
+      // Add to broadcasts (inbox)
+      await addDoc(collection(db, 'broadcasts'), {
+        content: data.message,
+        senderId: 'system',
+        senderName: 'System',
+        targetUserId: userId,
+        type: type,
+        timestamp: serverTimestamp(),
+        readBy: [],
+        createdAt: serverTimestamp()
+      });
+      
+      // Add to notifications collection
+      await addDoc(collection(db, 'notifications'), {
+        userId,
+        type: type,
+        title: data.title || 'System Notification',
+        message: data.message,
+        data: data,
+        read: false,
+        createdAt: serverTimestamp()
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      return false;
+    }
+  };
+
   // ✅ HANDLE PAYOUT APPROVAL WITH CASHFLOW CHECK
   const handleApprovePayout = async (payoutId: string) => {
     setProcessing(payoutId);
@@ -92,7 +134,11 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
       
       if (!cashflowCheck.allowed) {
         // Auto-hold if limit exceeded
-        await updateDoc(doc(db, 'payouts', payoutId), {
+        const batch = writeBatch(db);
+        
+        // 1. Update payout to hold
+        const payoutRef = doc(db, 'payouts', payoutId);
+        batch.update(payoutRef, {
           status: PayoutStatus.HOLD,
           holdReason: `Daily cashflow limit exceeded. Remaining: ₹${cashflowCheck.remaining}`,
           holdAt: serverTimestamp(),
@@ -100,10 +146,21 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
           updatedAt: serverTimestamp()
         });
 
-        // Return amount to user's wallet
-        await updateDoc(doc(db, 'users', payout.userId), {
+        // 2. Return amount to user's wallet
+        const userRef = doc(db, 'users', payout.userId);
+        batch.update(userRef, {
           walletBalance: increment(payout.amount),
           updatedAt: serverTimestamp()
+        });
+
+        await batch.commit();
+        
+        // Send notification to user
+        await sendNotification(payout.userId, 'payout_hold', {
+          message: `Your payout of ₹${payout.amount} has been put on hold due to daily cashflow limit. Remaining limit: ₹${cashflowCheck.remaining}`,
+          amount: payout.amount,
+          status: 'hold',
+          reason: `Daily cashflow limit exceeded`
         });
 
         showToast(`Payout auto-held: ${cashflowCheck.message}`, 'error');
@@ -130,14 +187,22 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
         updatedAt: serverTimestamp()
       });
 
-      // 3. Update user wallet (deduct)
+      // 3. Update user wallet (deduct - already deducted during request)
       const userRef = doc(db, 'users', payout.userId);
       batch.update(userRef, {
-        walletBalance: increment(-payout.amount),
         updatedAt: serverTimestamp()
       });
 
       await batch.commit();
+      
+      // Send notification to user
+      await sendNotification(payout.userId, 'payout_approved', {
+        message: `Your payout of ₹${payout.amount} has been approved and will be processed within 24-48 hours.`,
+        amount: payout.amount,
+        status: 'approved',
+        method: payout.method
+      });
+      
       showToast(`Payout of ₹${payout.amount.toLocaleString('en-IN')} approved`, 'success');
       
     } catch (error: any) {
@@ -180,6 +245,15 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
       });
 
       await batch.commit();
+      
+      // Send notification to user
+      await sendNotification(payout.userId, 'payout_rejected', {
+        message: `Your payout of ₹${payout.amount} has been rejected. Reason: ${rejectReason}`,
+        amount: payout.amount,
+        status: 'rejected',
+        reason: rejectReason
+      });
+      
       showToast('Payout rejected and amount returned to user', 'success');
       setRejectReason('');
       setSelectedItem(null);
@@ -209,6 +283,14 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
         holdAt: serverTimestamp(),
         heldBy: 'admin',
         updatedAt: serverTimestamp()
+      });
+
+      // Send notification to user
+      await sendNotification(payout.userId, 'payout_hold', {
+        message: `Your payout of ₹${payout.amount} has been put on hold. Reason: ${holdNote}`,
+        amount: payout.amount,
+        status: 'hold',
+        reason: holdNote
       });
 
       showToast('Payout put on hold', 'success');
@@ -243,6 +325,13 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
         holdAt: null,
         heldBy: null,
         updatedAt: serverTimestamp()
+      });
+
+      // Send notification to user
+      await sendNotification(payout.userId, 'payout_update', {
+        message: `Your payout of ₹${payout.amount} has been released from hold and is now pending.`,
+        amount: payout.amount,
+        status: 'pending'
       });
 
       showToast('Payout released from hold', 'success');
@@ -281,6 +370,14 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
       });
 
       await batch.commit();
+      
+      // Send notification to user
+      await sendNotification(submission.userId, 'submission_approved', {
+        message: `Your submission for "${submission.campaignTitle}" has been approved! ₹${submission.rewardAmount} has been added to your wallet.`,
+        amount: submission.rewardAmount,
+        campaignTitle: submission.campaignTitle,
+        status: 'approved'
+      });
       
       const isViral = submission.status === SubmissionStatus.VIRAL_CLAIM;
       showToast(
@@ -326,6 +423,14 @@ const AdminPayouts: React.FC<AdminPayoutsProps> = ({
       });
 
       await batch.commit();
+      
+      // Send notification to user
+      await sendNotification(submission.userId, 'submission_rejected', {
+        message: `Your submission for "${submission.campaignTitle}" has been rejected. Reason: ${rejectReason}`,
+        campaignTitle: submission.campaignTitle,
+        status: 'rejected',
+        reason: rejectReason
+      });
       
       showToast('Submission rejected', 'success');
       setRejectReason('');
