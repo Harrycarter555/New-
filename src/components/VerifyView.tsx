@@ -1,7 +1,6 @@
-// src/components/VerifyView.tsx
 import React, { useState } from 'react';
 import { AppState, User, Platform, SubmissionStatus, Campaign } from '../types';
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { ICONS } from '../constants'; // Import ICONS from constants
 import { 
   collection, 
   addDoc, 
@@ -15,24 +14,11 @@ import {
 import { db } from '../firebase';
 import { getAuth } from 'firebase/auth';
 
-// Icons
-const Icons = {
-  Check: () => <span className="text-black">✓</span>,
-  Instagram: () => <span>📷</span>,
-  Facebook: () => <span>📘</span>,
-  Info: () => <span>ℹ️</span>,
-  Verify: () => <span>✅</span>,
-  Warning: () => <span>⚠️</span>,
-  Shield: () => <span>🛡️</span>,
-  Robot: () => <span>🤖</span>,
-};
-
 interface VerifyViewProps {
   currentUser: User;
   appState: AppState;
   setAppState: React.Dispatch<React.SetStateAction<AppState>>;
   showToast: (msg: string, type?: 'success' | 'error') => void;
-  genAI: GoogleGenerativeAI;
   userCampaigns: Campaign[];
 }
 
@@ -41,7 +27,6 @@ const VerifyView: React.FC<VerifyViewProps> = ({
   appState,
   setAppState,
   showToast,
-  genAI,
   userCampaigns,
 }) => {
   const [platform, setPlatform] = useState<Platform>(Platform.INSTAGRAM);
@@ -91,69 +76,6 @@ const VerifyView: React.FC<VerifyViewProps> = ({
         return { valid: false, message: 'Must be a Facebook Reel/Video URL' };
       }
       return { valid: true, message: 'Valid Facebook URL' };
-    }
-  };
-
-  // ✅ SIMPLE AI VERIFICATION WITHOUT MODEL ERRORS
-  const performAIVerification = async (
-    url: string, 
-    campaign: Campaign, 
-    username: string
-  ): Promise<{ 
-    success: boolean; 
-    message: string; 
-    score: number;
-    requiresReview: boolean;
-  }> => {
-    try {
-      console.log('🔍 Checking URL with basic validation...');
-      
-      // Simple checks without calling Gemini API
-      const urlLower = url.toLowerCase();
-      const usernameLower = username.toLowerCase();
-      
-      // Basic validation
-      let isValid = true;
-      let reasons: string[] = [];
-      let score = 40; // Default score for manual review
-      
-      // Check if URL contains username (basic check)
-      if (!urlLower.includes(usernameLower) && !urlLower.includes(`@${usernameLower}`)) {
-        reasons.push('Username not found in URL');
-        score -= 10;
-      }
-      
-      // Check if it's a reel URL
-      if (platform === Platform.INSTAGRAM && !urlLower.includes('/reel/')) {
-        reasons.push('Not an Instagram Reel URL');
-        score -= 10;
-      }
-      
-      if (platform === Platform.FACEBOOK && !urlLower.includes('/reel/') && !urlLower.includes('/video/')) {
-        reasons.push('Not a Facebook Reel/Video URL');
-        score -= 10;
-      }
-      
-      const requiresReview = score < 35 || reasons.length > 0;
-      
-      return {
-        success: true, // Always allow, but mark for review if needed
-        message: requiresReview ? 
-          `Manual review required: ${reasons.join(', ')}` : 
-          'URL looks valid',
-        score,
-        requiresReview
-      };
-      
-    } catch (error: any) {
-      console.error('AI Verification error:', error);
-      
-      return {
-        success: true, // Always allow, manual review
-        message: 'Manual review required - AI service unavailable',
-        score: 30,
-        requiresReview: true
-      };
     }
   };
 
@@ -210,18 +132,13 @@ const VerifyView: React.FC<VerifyViewProps> = ({
 
         setAnalysisStep(`📤 Processing: ${campaign.title}...`);
 
-        // ✅ Basic AI Verification
-        const aiResult = await performAIVerification(links[cid], campaign, cleanHandle);
-        console.log(`AI Result for ${campaign.title}:`, aiResult);
-
-        // Determine status - always pending for manual review
+        // Determine status - pending for manual review
         const status = SubmissionStatus.PENDING;
-        const requiresReview = true; // Always require review for security
 
         // Create submission document
         const submissionRef = doc(collection(db, 'submissions'));
         const submissionData = {
-          // Required fields for Firestore rules
+          // Required fields
           userId: firebaseUser.uid,
           campaignId: cid,
           externalLink: links[cid],
@@ -234,10 +151,10 @@ const VerifyView: React.FC<VerifyViewProps> = ({
           campaignTitle: campaign.title,
           rewardAmount: campaign.basicPay,
           status: status,
-          aiVerified: false, // Manual review always
-          aiScore: aiResult.score,
-          aiMessage: aiResult.message,
-          requiresManualReview: requiresReview,
+          aiVerified: false, // Manual review
+          aiScore: 0,
+          aiMessage: 'Pending manual review',
+          requiresManualReview: true,
           timestamp: Date.now(),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
@@ -254,7 +171,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
         return;
       }
 
-      // ✅ Update user document - SINGLE UPDATE WITH ALLOWED FIELDS
+      // ✅ Update user document - ONLY update pendingBalance
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       
       // Get current user data
@@ -264,23 +181,10 @@ const VerifyView: React.FC<VerifyViewProps> = ({
         const currentData = userDoc.data();
         const currentPending = currentData.pendingBalance || 0;
         
-        // ✅ IMPORTANT: Update ALL fields in ONE operation (rules check exact match)
+        // Update only pendingBalance
         batch.update(userDocRef, {
           pendingBalance: currentPending + totalPayout,
-          savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
-          updatedAt: serverTimestamp(),
-          lastSubmissionAt: serverTimestamp()
-          // DO NOT add any other fields here
-        });
-      } else {
-        // Create user doc if doesn't exist
-        batch.set(userDocRef, {
-          pendingBalance: totalPayout,
-          savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
-          updatedAt: serverTimestamp(),
-          role: 'user',
-          status: 'active',
-          createdAt: serverTimestamp()
+          updatedAt: serverTimestamp()
         });
       }
 
@@ -296,7 +200,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
           u.id === currentUser.id
             ? {
                 ...u,
-                pendingBalance: u.pendingBalance + totalPayout,
+                pendingBalance: (u.pendingBalance || 0) + totalPayout,
                 savedSocialUsername: `${platform === Platform.INSTAGRAM ? 'instagram.com/@' : 'facebook.com/'}${cleanHandle}`,
               }
             : u
@@ -324,30 +228,7 @@ const VerifyView: React.FC<VerifyViewProps> = ({
       
       if (error.code === 'permission-denied') {
         showToast(
-          'Firestore permission denied. Rules need to allow update of: pendingBalance, savedSocialUsername, updatedAt, lastSubmissionAt',
-          'error'
-        );
-        
-        // Show exact rules to update
-        const rulesUpdate = `
-🔥 UPDATE FIRESTORE RULES:
-
-match /users/{userId} {
-  allow update: if 
-    // User can update specific fields together
-    (isSameUser(userId) && 
-     request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-       'pendingBalance', 'savedSocialUsername', 'updatedAt', 'lastSubmissionAt'
-     ])) ||
-    // Admin can update everything
-    isAdmin();
-}
-        `;
-        console.log(rulesUpdate);
-        
-      } else if (error.code === 'failed-precondition') {
-        showToast(
-          'Database error. Please try again.',
+          'Firestore permission denied. Please contact admin.',
           'error'
         );
       } else {
@@ -358,32 +239,9 @@ match /users/{userId} {
     }
   };
 
-  // ✅ TEST FIREBASE CONNECTION
-  const testFirebaseConnection = async () => {
-    try {
-      const auth = getAuth();
-      const user = auth.currentUser;
-      
-      if (!user) {
-        showToast('Not logged in', 'error');
-        return;
-      }
-
-      showToast('Testing Firebase connection...', 'success');
-      
-      // Test write to _test collection
-      const testRef = await addDoc(collection(db, '_test'), {
-        test: 'connection',
-        timestamp: serverTimestamp(),
-        uid: user.uid
-      });
-      
-      showToast('✅ Firebase connection successful!', 'success');
-      
-    } catch (error: any) {
-      console.error('Firebase test error:', error);
-      showToast(`Firebase error: ${error.message}`, 'error');
-    }
+  // Format currency
+  const formatCurrency = (amount: number): string => {
+    return `₹${amount?.toLocaleString('en-IN') || '0'}`;
   };
 
   return (
@@ -406,27 +264,7 @@ match /users/{userId} {
           VERIFY <span className="text-green-400">SUBMISSIONS</span>
         </h2>
         <p className="text-sm font-bold text-gray-400 uppercase tracking-widest mt-2">
-          Manual Review System
-        </p>
-        
-        {/* Test Connection Button */}
-        <button
-          onClick={testFirebaseConnection}
-          className="mt-4 mx-auto px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-black text-xs font-bold rounded-xl flex items-center gap-2 hover:opacity-90"
-        >
-          <Icons.Shield />
-          Test Firebase Connection
-        </button>
-      </div>
-
-      {/* Important Notice */}
-      <div className="mx-4 p-4 bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-green-500/30 rounded-xl">
-        <div className="flex items-center gap-2 mb-2">
-          <Icons.Warning />
-          <p className="text-xs font-black text-green-400">IMPORTANT: Update Firestore Rules</p>
-        </div>
-        <p className="text-[10px] text-gray-300">
-          Update rules to allow: pendingBalance, savedSocialUsername, updatedAt, lastSubmissionAt
+          Submit Your Reels for Manual Review
         </p>
       </div>
 
@@ -458,11 +296,11 @@ match /users/{userId} {
                 <p className="text-xs font-bold text-white truncate">{campaign.title}</p>
                 <div className="flex justify-between items-center mt-1">
                   <span className="text-[10px] text-green-400 font-bold">
-                    ₹{campaign.basicPay}
+                    {formatCurrency(campaign.basicPay)}
                   </span>
                   {selectedVerifyCampaigns.includes(campaign.id) && (
                     <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                      <Icons.Check />
+                      <ICONS.Check className="w-3 h-3 text-black" />
                     </div>
                   )}
                 </div>
@@ -486,7 +324,7 @@ match /users/{userId} {
                 platform === Platform.INSTAGRAM ? 'bg-green-500 text-black shadow-lg' : 'text-slate-500'
               }`}
             >
-              <Icons.Instagram />
+              <ICONS.Instagram className="w-4 h-4" />
               Instagram
             </button>
             <button
@@ -495,7 +333,7 @@ match /users/{userId} {
                 platform === Platform.FACEBOOK ? 'bg-green-500 text-black shadow-lg' : 'text-slate-500'
               }`}
             >
-              <Icons.Facebook />
+              <ICONS.Facebook className="w-4 h-4" />
               Facebook
             </button>
           </div>
@@ -534,7 +372,7 @@ match /users/{userId} {
                     <div className="flex-1">
                       <p className="text-sm font-bold text-white">{campaign?.title}</p>
                       <div className="flex justify-between items-center mt-1">
-                        <p className="text-[10px] text-green-400">₹{campaign?.basicPay}</p>
+                        <p className="text-[10px] text-green-400">{formatCurrency(campaign?.basicPay || 0)}</p>
                         <p className="text-[8px] text-slate-500 bg-black/30 px-2 py-1 rounded">
                           {campaign?.audioName?.substring(0, 10) || 'Audio'}...
                         </p>
@@ -547,8 +385,9 @@ match /users/{userId} {
                     value={links[cid] || ''}
                     onChange={e => setLinks({ ...links, [cid]: e.target.value })}
                   />
-                  <div className="text-[9px] text-green-400">
-                    ✅ Must be valid {platform} URL
+                  <div className="flex items-center gap-1 text-[9px] text-green-400">
+                    <ICONS.Check className="w-3 h-3" />
+                    Must be valid {platform} URL
                   </div>
                 </div>
               );
@@ -573,7 +412,7 @@ match /users/{userId} {
             </>
           ) : (
             <>
-              <Icons.Verify />
+              <ICONS.Verify className="w-5 h-5" />
               SUBMIT FOR MANUAL REVIEW
             </>
           )}
@@ -584,54 +423,69 @@ match /users/{userId} {
           <div className="p-4 bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-green-500/20 rounded-2xl">
             <div className="flex justify-between items-center mb-3">
               <div>
-                <p className="text-xs font-black text-green-400">
+                <p className="text-xs font-black text-green-400 flex items-center gap-1">
+                  <ICONS.Target className="w-3 h-3" />
                   {selectedVerifyCampaigns.length} Mission{selectedVerifyCampaigns.length > 1 ? 's' : ''} Selected
                 </p>
-                <p className="text-[10px] text-slate-400">
+                <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                  <ICONS.Share className="w-3 h-3" />
                   {platform === Platform.INSTAGRAM ? 'Instagram Reels' : 'Facebook Reels'}
                 </p>
               </div>
               <div className="text-right">
                 <p className="text-lg font-black text-white">
-                  ₹{selectedVerifyCampaigns.reduce((sum, cid) => {
+                  {formatCurrency(selectedVerifyCampaigns.reduce((sum, cid) => {
                     const campaign = activeCampaigns.find(c => c.id === cid);
                     return sum + (campaign?.basicPay || 0);
-                  }, 0)}
+                  }, 0))}
                 </p>
                 <p className="text-[10px] text-slate-400">Total Payout</p>
               </div>
             </div>
             
-            <div className="mt-3 p-2 bg-black/30 rounded-lg border border-white/10">
-              <p className="text-[10px] text-gray-400 text-center">
-                ⚠️ All submissions require manual review
-              </p>
+            <div className="mt-3 p-3 bg-black/30 rounded-lg border border-white/10">
+              <div className="flex items-center gap-2 mb-2">
+                <ICONS.Info className="w-4 h-4 text-amber-400" />
+                <p className="text-[10px] text-gray-400">
+                  ⚠️ All submissions require manual review (24-48 hours)
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <ICONS.Shield className="w-4 h-4 text-green-400" />
+                <p className="text-[10px] text-gray-400">
+                  Payment will be added to wallet after approval
+                </p>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Process Info */}
+        {/* Info Section */}
         <div className="p-4 bg-black/30 border border-white/10 rounded-2xl">
-          <p className="text-xs font-black text-white mb-2 flex items-center gap-2">
-            <Icons.Info />
-            How It Works
-          </p>
-          <div className="text-[10px] text-gray-400 space-y-1">
+          <div className="flex items-center gap-2 mb-3">
+            <ICONS.Info className="w-5 h-5 text-cyan-400" />
+            <p className="text-sm font-black text-white">How It Works</p>
+          </div>
+          <div className="text-[10px] text-gray-400 space-y-2">
             <div className="flex items-start gap-2">
-              <span className="text-green-400">✓</span>
-              <span>Submit your reel links</span>
+              <ICONS.CheckCircle className="w-3 h-3 text-green-400 mt-0.5" />
+              <span>1. Select campaigns you've completed</span>
             </div>
             <div className="flex items-start gap-2">
-              <span className="text-green-400">✓</span>
-              <span>Basic URL validation</span>
+              <ICONS.CheckCircle className="w-3 h-3 text-green-400 mt-0.5" />
+              <span>2. Enter your social media username</span>
             </div>
             <div className="flex items-start gap-2">
-              <span className="text-yellow-400">⚠</span>
-              <span>Manual review by admin (24-48 hours)</span>
+              <ICONS.CheckCircle className="w-3 h-3 text-green-400 mt-0.5" />
+              <span>3. Paste reel links for each campaign</span>
             </div>
             <div className="flex items-start gap-2">
-              <span className="text-green-400">✓</span>
-              <span>Payment after approval</span>
+              <ICONS.Clock className="w-3 h-3 text-amber-400 mt-0.5" />
+              <span>4. Manual review by admin (24-48 hours)</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <ICONS.Wallet className="w-3 h-3 text-cyan-400 mt-0.5" />
+              <span>5. Payment added to wallet after approval</span>
             </div>
           </div>
         </div>
