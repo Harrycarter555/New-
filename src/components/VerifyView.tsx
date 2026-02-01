@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppState, User, Platform, SubmissionStatus, Campaign } from '../types';
-import { ICONS } from '../constants'; // Import ICONS from constants
+import { ICONS } from '../constants'; // ✅ Import from constants
 import { 
   collection, 
   addDoc, 
