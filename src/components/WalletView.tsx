@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, AppState, PayoutStatus, Platform, SubmissionStatus, Campaign } from '../types';
 import { ICONS } from '../constants';
 import { userService, reportService } from './AdminPanel/firebaseService';
+import { db } from '../firebase';
+import { collection, query, where, orderBy, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 interface WalletViewProps {
   currentUser: User;
@@ -36,8 +38,33 @@ const WalletView: React.FC<WalletViewProps> = ({
   const [viralLink, setViralLink] = useState('');
   const [selectedCampaignForViral, setSelectedCampaignForViral] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userMessages, setUserMessages] = useState<any[]>([]);
 
-  // ==================== Withdrawal Logic (using saved payment details) ====================
+  // ==================== FETCH USER MESSAGES ====================
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    
+    const messagesRef = collection(db, 'broadcasts');
+    const q = query(
+      messagesRef,
+      where('targetUserId', 'in', [currentUser.id, null]),
+      orderBy('timestamp', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const messages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setUserMessages(messages);
+    }, (error) => {
+      console.error('Error fetching messages:', error);
+    });
+    
+    return unsubscribe;
+  }, [currentUser?.id]);
+
+  // ==================== Withdrawal Logic ====================
   const handleWithdrawal = async () => {
     const amount = Number(withdrawAmount);
 
@@ -87,14 +114,44 @@ const WalletView: React.FC<WalletViewProps> = ({
     }
   };
 
+  // ==================== Update Payment Settings ====================
   const handleUpdatePayment = async () => {
+    if (!paymentSettings.details.trim()) {
+      return showToast('Payment details cannot be empty', 'error');
+    }
+
+    setIsSubmitting(true);
     try {
+      // Update in Firebase
+      await updateDoc(doc(db, 'users', currentUser.id), {
+        payoutMethod: paymentSettings.method,
+        payoutDetails: paymentSettings.details,
+        updatedAt: serverTimestamp()
+      });
+
+      // Update local state
+      setAppState(prev => ({
+        ...prev,
+        users: prev.users.map(u =>
+          u.id === currentUser.id
+            ? {
+                ...u,
+                payoutMethod: paymentSettings.method,
+                payoutDetails: paymentSettings.details
+              }
+            : u
+        )
+      }));
+
       showToast('Payment Settings Saved', 'success');
     } catch (error: any) {
       showToast(error.message || 'Failed to update payment settings', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
+  // ==================== Viral Submit ====================
   const handleViralSubmit = async () => {
     if (!viralLink || !selectedCampaignForViral) {
       return showToast('Please fill all fields', 'error');
@@ -112,14 +169,19 @@ const WalletView: React.FC<WalletViewProps> = ({
     }
   };
 
+  // ==================== Helper Functions ====================
   const formatCurrency = (amount: number): string => `₹${amount?.toLocaleString('en-IN') || '0'}`;
-  const formatDate = (timestamp: number): string => new Date(timestamp).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  const formatDate = (timestamp: any): string => {
+    if (!timestamp) return 'Just now';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   const pendingSubmissions = userSubmissions.filter(
     s => s.status === SubmissionStatus.PENDING || s.status === SubmissionStatus.VIRAL_CLAIM
@@ -257,11 +319,11 @@ const WalletView: React.FC<WalletViewProps> = ({
       {/* Inbox Tab */}
       {walletTab === 'inbox' && (
         <div className="space-y-4 animate-slide">
-          <h3 className="text-xl font-black italic px-2 text-white italic uppercase">Messages</h3>
-          {userBroadcasts.length === 0 ? (
-            <p className="text-center py-20 text-slate-700 font-black uppercase text-[10px]">No new messages</p>
+          <h3 className="text-xl font-black italic px-2 text-white italic uppercase">Inbox</h3>
+          {userMessages.length === 0 ? (
+            <p className="text-center py-20 text-slate-700 font-black uppercase text-[10px]">No messages</p>
           ) : (
-            userBroadcasts.map((m: any) => (
+            userMessages.map((m: any) => (
               <div key={m.id} className="glass-panel p-6 rounded-[32px] border-l-4 border-l-cyan-500">
                 <p className="text-xs text-white leading-relaxed">{m.content}</p>
                 <p className="text-[8px] text-slate-500 mt-2">
@@ -300,9 +362,10 @@ const WalletView: React.FC<WalletViewProps> = ({
             />
             <button
               onClick={handleUpdatePayment}
-              className="w-full py-6 bg-cyan-500 text-black rounded-[28px] font-black uppercase text-sm shadow-xl active:scale-95"
+              disabled={isSubmitting}
+              className="w-full py-6 bg-cyan-500 text-black rounded-[28px] font-black uppercase text-sm shadow-xl active:scale-95 disabled:opacity-50"
             >
-              Save Payment Details
+              {isSubmitting ? 'Saving...' : 'Save Payment Details'}
             </button>
           </div>
         </div>
@@ -368,7 +431,7 @@ const WalletView: React.FC<WalletViewProps> = ({
         </div>
       )}
 
-      {/* Report Tab - No blank screen */}
+      {/* Report Tab */}
       {walletTab === 'report' && (
         <ReportTab currentUser={currentUser} showToast={showToast} />
       )}
@@ -376,7 +439,7 @@ const WalletView: React.FC<WalletViewProps> = ({
   );
 };
 
-// ReportTab - states defined, no blank screen
+// ReportTab Component
 const ReportTab: React.FC<{
   currentUser: User;
   showToast: (msg: string, type?: 'success' | 'error') => void;
